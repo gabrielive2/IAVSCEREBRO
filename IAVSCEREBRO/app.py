@@ -173,7 +173,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                         "Tiempo Humano": f"{segundos_transcurridos} s",
                         "Humano": resultado_humano,
                         "Tiempo IA": f"{tiempo_ia_s} s",
-                        "IA (Achuntó)": ia_achunto
+                        "IA (Acertó)": ia_acerto
                     })
                     st.session_state.indice_imagen += 1
                     st.session_state.marca_tiempo_inicio = time.time()
