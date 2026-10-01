@@ -6,7 +6,8 @@ import base64
 
 st.set_page_config(page_title="IAVSCEREBRO - Quiz", layout="centered")
 
-FONDO_PATH = "fondo/naturaleza.jpg"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FONDO_PATH = os.path.join(BASE_DIR, "fondo", "naturaleza.jpg")
 CARPETA_FACIL = "faciles"
 CARPETA_INTERMEDIA = "intermedias"
 CARPETA_DIFICIL = "dificiles"
@@ -30,8 +31,13 @@ def obtener_base64_imagen(ruta):
     return None
 
 def obtener_muestra_imagenes(carpeta):
-    if os.path.exists(carpeta):
-        archivos = [os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.lower().endswith(('.jpg', '.jpeg'))]
+    ruta_absoluta_carpeta = os.path.join(BASE_DIR, carpeta)
+    if os.path.exists(ruta_absoluta_carpeta):
+        archivos = [
+            os.path.join(carpeta, f) 
+            for f in os.listdir(ruta_absoluta_carpeta) 
+            if f.lower().endswith(('.jpg', '.jpeg'))
+        ]
         if len(archivos) >= IMAGENES_POR_BLOQUE:
             return random.sample(archivos, IMAGENES_POR_BLOQUE)
         return archivos
@@ -123,53 +129,50 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         nombre_sin_ext, _ = os.path.splitext(nombre_archivo)
         
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
-        if os.path.exists(ruta_img):
-            st.image(ruta_img)
+        
+        ruta_absoluta_img = os.path.join(BASE_DIR, ruta_img)
+        if os.path.exists(ruta_absoluta_img):
+            st.image(ruta_absoluta_img, use_container_width=True)
         else:
             st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
         
         tiempo_actual = time.time()
         segundos_transcurridos = round(tiempo_actual - st.session_state.marca_tiempo_inicio, 1)
         st.markdown(f"⏱️ **Tiempo transcurrido:** `{segundos_transcurridos} s`")
+        
         if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
-                st.write("⌨️ **INSTRUCCIONES DEL ÁRBITRO:**")
-                st.write("🟢 Presiona **Enter** si el concursante **ACERTÓ**.")
-                st.write("🔴 Presiona la barra de **Espacio** si el concursante **FALLÓ**.")
+            st.write("⌨️ **INSTRUCCIONES DEL ÁRBITRO:**")
+            st.write("🟢 Presiona **Enter** si el concursante **ACERTÓ**.")
+            st.write("🔴 Presiona la barra de **Espacio** si el concursante **FALLÓ**.")
             
-                # Un solo campo de texto que captura las acciones del teclado
-                entrada_arbitro = st.text_input(
-                    "Control Árbitro", 
-                    key=f"arbitro_input_{st.session_state.fase}_{idx}", 
-                    label_visibility="collapsed"
-                )
+            entrada_arbitro = st.text_input(
+                "Control Árbitro", 
+                key=f"arbitro_input_{st.session_state.fase}_{idx}", 
+                label_visibility="collapsed"
+            )
             
-                # JavaScript oculto para mantener siempre el foco en el teclado y leer el espacio
-                st.components.v1.html(
-                    f"""
-                    <script>
-                    var doc = window.parent.document;
-                    var inputs = doc.querySelectorAll('input[type="text"]');
-                    if (inputs.length > 0) {{
-                        var target = inputs[inputs.length - 1];
-                        target.focus();
-                    
-                        // Si el usuario presiona espacio, le ponemos un caracter especial para detectarlo en Python
-                        target.onkeydown = function(e) {{
-                            if (e.key === ' ') {{
-                                target.value = 'espacio';
-                            }}
-                        }};
-                    }}
-                    </script>
-                    """,
-                    height=0,
-                )
+            st.components.v1.html(
+                f"""
+                <script>
+                var doc = window.parent.document;
+                var inputs = doc.querySelectorAll('input[type="text"]');
+                if (inputs.length > 0) {{
+                    var target = inputs[inputs.length - 1];
+                    target.focus();
+                    target.onkeydown = function(e) {{
+                        if (e.key === ' ') {{
+                            target.value = 'espacio';
+                        }}
+                    }};
+                }}
+                </script>
+                """,
+                height=0,
+            )
             
-                if entrada_arbitro:
-                            # Si se presionó enter sin escribir nada (o se escribió algo por error) es ACERTO
-                            # Si el JS detectó la barra espaciadora, el valor será 'espacio' y es FALLO
-                            if entrada_arbitro.strip().lower() == "espacio":
-                                resultado_humano = "Falló"
+            if entrada_arbitro:
+                if entrada_arbitro.strip().lower() == "espacio":
+                    resultado_humano = "Falló"
                 else:
                     resultado_humano = "Acertó"
                     
@@ -189,9 +192,9 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                 st.session_state.marca_tiempo_inicio = time.time()
                 st.rerun()
 
-        
         else:
             respuesta_escrita = st.text_input("¿Qué animal es este? (Escribe el nombre y presiona Enter):", key=f"txt_{st.session_state.fase}_{idx}")
+            
             if respuesta_escrita:
                 if respuesta_escrita.lower().strip() == nombre_sin_ext.lower().strip():
                     resultado_humano = "Acertó"
@@ -209,6 +212,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                     "Tiempo IA": f"{tiempo_ia_s} s",
                     "IA (Achuntó)": ia_achunto
                 })
+                
                 st.session_state.indice_imagen += 1
                 st.session_state.marca_tiempo_inicio = time.time()
                 st.rerun()
@@ -229,12 +233,13 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 elif st.session_state.fase == "FINAL":
     st.title("📊 MÉTRICAS FINALES — IAVSCEREBRO")
     st.success("¡Prueba concluida exitosamente!")
+    
     st.write("### Tabla Comparativa Completa")
     if st.session_state.resultados:
-        st.table(st.session_state.resultados)
+        st.table(st.seccion_state.resultados)
     else:
-        st.info("No hay datos registrados en esta partida.")
-        
-    if st.button("🔄 Reiniciar Nueva Evaluación", use_container_width=True):
-        st.session_state.clear()
+        st.info("no hay datos registrados en esta partida.")
+
+    if st.button("reiniciar nueva evaluacion",use_container_widtch=true):
+        st.secccion_state.clear()
         st.rerun()
