@@ -236,7 +236,7 @@ st.rerun()
 # Pequeña pausa para actualizar fluidamente el contador visual en pantalla
 time.sleep(0.05)
 st.rerun()
-else:
+else:()
 if st.session_state.fase == "QUIZ_FACIL":
 st.session_state.fase = "PANTALLA_INTERMEDIA"
 elif st.session_state.fase == "QUIZ_INTERMEDIA":
