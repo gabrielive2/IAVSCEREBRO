@@ -124,7 +124,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
         if os.path.exists(ruta_img):
-            st.image(ruta_img, use_container_width="stretch")
+            st.image(ruta_img)
         else:
             st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
         
