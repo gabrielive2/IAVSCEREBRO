@@ -131,40 +131,39 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         tiempo_actual = time.time()
         segundos_transcurridos = round(tiempo_actual - st.session_state.marca_tiempo_inicio, 1)
         st.markdown(f"⏱️ **Tiempo transcurrido:** `{segundos_transcurridos} s`")
-
-            if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
-            st.write("⌨️ **INSTRUCCIONES DEL ÁRBITRO:**")
-            st.write("🟢 Presiona **Enter** si el concursante **ACERTÓ**.")
-            st.write("🔴 Presiona la barra de **Espacio** si el concursante **FALLÓ**.")
+        if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
+                st.write("⌨️ **INSTRUCCIONES DEL ÁRBITRO:**")
+                st.write("🟢 Presiona **Enter** si el concursante **ACERTÓ**.")
+                st.write("🔴 Presiona la barra de **Espacio** si el concursante **FALLÓ**.")
             
-            # Un solo campo de texto que captura las acciones del teclado
-            entrada_arbitro = st.text_input(
-                "Control Árbitro", 
-                key=f"arbitro_input_{st.session_state.fase}_{idx}", 
-                label_visibility="collapsed"
-            )
+                # Un solo campo de texto que captura las acciones del teclado
+                entrada_arbitro = st.text_input(
+                    "Control Árbitro", 
+                    key=f"arbitro_input_{st.session_state.fase}_{idx}", 
+                    label_visibility="collapsed"
+                )
             
-            # JavaScript oculto para mantener siempre el foco en el teclado y leer el espacio
-            st.components.v1.html(
-                f"""
-                <script>
-                var doc = window.parent.document;
-                var inputs = doc.querySelectorAll('input[type="text"]');
-                if (inputs.length > 0) {{
-                    var target = inputs[inputs.length - 1];
-                    target.focus();
+                # JavaScript oculto para mantener siempre el foco en el teclado y leer el espacio
+                st.components.v1.html(
+                    f"""
+                    <script>
+                    var doc = window.parent.document;
+                    var inputs = doc.querySelectorAll('input[type="text"]');
+                    if (inputs.length > 0) {{
+                        var target = inputs[inputs.length - 1];
+                        target.focus();
                     
-                    // Si el usuario presiona espacio, le ponemos un caracter especial para detectarlo en Python
-                    target.onkeydown = function(e) {{
-                        if (e.key === ' ') {{
-                            target.value = 'espacio';
-                        }}
-                    }};
-                }}
-                </script>
-                """,
-                height=0,
-            )
+                        // Si el usuario presiona espacio, le ponemos un caracter especial para detectarlo en Python
+                        target.onkeydown = function(e) {{
+                            if (e.key === ' ') {{
+                                target.value = 'espacio';
+                            }}
+                        }};
+                    }}
+                    </script>
+                    """,
+                    height=0,
+                )
             
             if entrada_arbitro:
                 # Si se presionó enter sin escribir nada (o se escribió algo por error) es ACERTO
