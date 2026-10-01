@@ -236,7 +236,7 @@ elif st.session_state.fase == "FINAL":
     
     st.write("### Tabla Comparativa Completa")
     if st.session_state.resultados:
-        st.table(st.seccion_state.resultados)
+        st.dataframe(st.seccion_state.resultados, use_container_widtch=true)
     else:
         st.info("no hay datos registrados en esta partida.")
 
