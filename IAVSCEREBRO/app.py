@@ -1,176 +1,206 @@
 import streamlit as st
-import random
-import time
 import os
+import time
+import random
 
-st.set_page_config(page_title="Humano vs IA - Multimodo", layout="centered")
-st.title("👤 Humano vs 🤖 IA")
+# Configuración inicial de la página
+st.set_page_config(page_title="IAVSCEREBRO - Quiz", layout="centered")
 
-# TU LISTA REAL DE ANIMALES OFICIAL
-RESPUESTAS_CORRECTAS = {
-    "a1": "Narval", "a2": "Armadillo", "a3": "pez borrón", "a4": "gato",
-    "a6": "Tarsero", "a7": "Aye-aye", "a8": "Chimpancé", "a9": "Serpiente",
-    "b1": "Delfines", "b2": "Tigre", "b3": "Cucaracha", "b4": "Koala",
-    "b5": "Picozapato", "b6": "Capibara", "b7": "Rinoceronte", "b8": "Antilope saiga",
-    "b9": "Cebra", "c1": "Caballo de mar", "c2": "Tortuga", "c3": "Murcielago de la fruta con nariz tubular",
-    "c4": "Pavo real común", "c5": "gallo", "c6": "Gaur", "c7": "Puma",
-    "c8": "Halcón peregrino", "c9": "Iguana azul", "d1": "Panda rojo", "d2": "Oso pardo",
-    "d3": "Conejo", "d4": "Oveja", "d5": "Herrerillo común", "d6": "Tucan",
-    "d7": "león", "d8": "doberman", "d9": "Pez volador", "e1": "Huemul",
-    "e2": "Chinchilla", "e3": "ajolote", "e4": "pez murciélago", "e5": "condor"
-}
+# =====================================================================
+# 1. CONFIGURACIÓN DE RUTAS Y CONSTANTES
+# =====================================================================
+FONDO_PATH = "fondo/naturaleza.jpg"
+CARPETA_FACIL = "faciles"
+CARPETA_INTERMEDIA = "intermedias"
+CARPETA_DIFICIL = "dificiles" # Dejado listo para cuando añadas tus 20 imágenes
 
-RUTA_IMAGENES = "imagenes"
+IMAGENES_POR_BLOQUE = 5
 
-if "juego_iniciado" not in st.session_state:
-    st.session_state.juego_iniciado = False
-    st.session_state.ronda_actual = 0
-    st.session_state.fotos_partida = []
-    st.session_state.puntos_humano = 0
-    st.session_state.tiempo_humano = 0.0
-    st.session_state.puntos_ia = 0
-    st.session_state.tiempo_ia = 0.0
-    st.session_state.ia_procesada = False
-    st.session_state.modo_juego = "Escribir nombre"
+# =====================================================================
+# 2. INICIALIZACIÓN DEL ESTADO DE SESIÓN (SESSION STATE)
+# =====================================================================
+if "fase" not in st.session_state:
+    # Fases del flujo: INICIO -> PANTALLA_FACIL -> QUIZ_FACIL -> PANTALLA_INTERMEDIA -> QUIZ_INTERMEDIA -> PANTALLA_DIFICIL -> QUIZ_DIFICIL -> FINAL
+    st.session_state.fase = "INICIO"
+    st.session_state.imagenes_partida = []
+    st.session_state.indice_imagen = 0
+    st.session_state.resultados = [] # Lista de diccionarios para recopilar la información final
+    st.session_state.marca_tiempo_inicio = 0.0
 
-# PANTALLA DE INICIO (Configuración de la partida)
-if not st.session_state.juego_iniciado:
-    st.write("### 🎮 Configura tu partida")
-    st.write(f"Tenemos un total de {len(RESPUESTAS_CORRECTAS)} imágenes en el sistema. Responderás **10 al azar**.")
-   
-    # Menú desplegable para elegir el modo de juego
-    st.session_state.modo_juego = st.selectbox(
-        "Selecciona el modo de juego:",
-        ["Escribir nombre (Jugador solo)", "Modo Árbitro (Teclas instantáneas V/X)"]
-    )
-   
-    if st.session_state.modo_juego == "Escribir nombre (Jugador solo)":
-        st.info("✍️ **Modo Escribir:** Verás la foto y tendrás que escribir el nombre exacto del animal. Presiona 'Enviar' o la tecla Enter para confirmar.")
+# Función interna para cargar 5 imágenes aleatorias .jpg de una carpeta
+def obtener_muestra_imagenes(carpeta):
+    if os.path.exists(carpeta):
+        archivos = [
+            os.path.join(carpeta, f) 
+            for f in os.listdir(carpeta) 
+            if f.lower().endswith('.jpg')
+        ]
+        if len(archivos) >= IMAGENES_POR_BLOQUE:
+            return random.sample(archivos, IMAGENES_POR_BLOQUE)
+        return archivos
+    return []
+
+# =====================================================================
+# 3. INTERFAZ DE USUARIO Y FLUJO DEL QUIZ
+# =====================================================================
+
+# --- PANTALLA DE INICIO ---
+if st.session_state.fase == "INICIO":
+    st.title("🧠 BIENVENIDO A IAVSCEREBRO")
+    
+    # Renderizar imagen de inicio
+    if os.path.exists(FONDO_PATH):
+        st.image(FONDO_PATH, use_container_width=True)
     else:
-        st.info("🔊 **Modo Árbitro:** El jugador dice el animal por voz. Tú (el réferi) presionas [V] si acierta o [X] si falla. ¡Cambia de foto al instante!")
-
-    if st.button("🚀 Empezar Partida"):
-        todas_las_llaves = list(RESPUESTAS_CORRECTAS.keys())
-        st.session_state.fotos_partida = random.sample(todas_las_llaves, 10)
-        st.session_state.juego_iniciado = True
-        st.session_state.ronda_actual = 0
-        st.session_state.puntos_humano = 0
-        st.session_state.tiempo_humano = 0.0
-        st.session_state.puntos_ia = 0
-        st.session_state.tiempo_ia = 0.0
-        st.session_state.ia_procesada = False
-        st.session_state.inicio_cronometro = time.time()
+        st.warning(f"Por favor, añade la imagen en la ruta: '{FONDO_PATH}'")
+        
+    if st.button("🚀 Comenzar Evaluación", type="primary", use_container_width=True):
+        st.session_state.fase = "PANTALLA_FACIL"
         st.rerun()
 
-# PANTALLA DE JUEGO (10 Rondas)
-elif st.session_state.ronda_actual < 10:
-    codigo_foto = st.session_state.fotos_partida[st.session_state.ronda_actual]
-    respuesta_valida = RESPUESTAS_CORRECTAS[codigo_foto]
-   
-    st.write(f"### 👤 Foto {st.session_state.ronda_actual + 1} de 10")
-   
-    # Si es modo árbitro, le mostramos el "chivato" al réferi de qué animal es
-    if st.session_state.modo_juego != "Escribir nombre (Jugador solo)":
-        st.caption(f"💡 El animal actual es: **{respuesta_valida}**")
-   
-    # Buscador de imágenes
-    ruta_final_imagen = ""
-    if os.path.exists(RUTA_IMAGENES):
-        archivos_en_carpeta = os.listdir(RUTA_IMAGENES)
-        for archivo in archivos_en_carpeta:
-            nombre_sin_ext, _ = os.path.splitext(archivo)
-            if nombre_sin_ext.lower().strip() == codigo_foto.lower().strip():
-                ruta_final_imagen = os.path.join(RUTA_IMAGENES, archivo)
-                break
-           
-    if ruta_final_imagen and os.path.exists(ruta_final_imagen):
-        st.image(ruta_final_imagen, use_container_width=True)
-    else:
-        st.error(f"No se encontró la foto para el código '{codigo_foto}'.")
+# --- PANTALLA INTERMEDIA: FÁCIL ---
+elif st.session_state.fase == "PANTALLA_FACIL":
+    st.subheader("🟢 Nivel Inicial")
+    st.title("IMÁGENES FÁCILES")
+    st.write("Presiona el botón para comenzar. Responde usando tu teclado de forma instantánea.")
+    
+    if st.button("Iniciar Bloque Fácil", use_container_width=True):
+        st.session_state.imagenes_partida = obtener_muestra_imagenes(CARPETA_FACIL)
+        st.session_state.indice_imagen = 0
+        st.session_state.fase = "QUIZ_FACIL"
+        st.session_state.marca_tiempo_inicio = time.time()
+        st.rerun()
 
-    # --- LÓGICA SEGÚN EL MODO SELECCIONADO ---
-    if st.session_state.modo_juego == "Escribir nombre (Jugador solo)":
-        # MODO ESCRIBIR TRADICIONAL
-        respuesta_humano = st.text_input("¿Qué animal es este?", key=f"escribir_{st.session_state.ronda_actual}")
-       
-        if st.button("Enviar Respuesta 📤"):
-            tiempo_ronda_humano = time.time() - st.session_state.inicio_cronometro
-            st.session_state.tiempo_humano += tiempo_ronda_humano
-           
-            if respuesta_humano.lower().strip() == respuesta_valida.lower().strip():
-                st.session_state.puntos_humano += 1
-                st.toast("¡Acertaste! 🎉")
-            else:
-                st.toast(f"Fallaste ❌ (Era: {respuesta_valida})")
-               
-            st.session_state.ronda_actual += 1
-            st.session_state.inicio_cronometro = time.time()
+# --- PANTALLA INTERMEDIA: INTERMEDIO ---
+elif st.session_state.fase == "PANTALLA_INTERMEDIA":
+    st.subheader("🟡 Nivel Moderado")
+    st.title("IMÁGENES INTERMEDIAS")
+    st.write("Preparado para el siguiente bloque. Los controles siguen siendo los mismos.")
+    
+    if st.button("Iniciar Bloque Intermedio", use_container_width=True):
+        st.session_state.imagenes_partida = obtener_muestra_imagenes(CARPETA_INTERMEDIA)
+        st.session_state.indice_imagen = 0
+        st.session_state.fase = "QUIZ_INTERMEDIA"
+        st.session_state.marca_tiempo_inicio = time.time()
+        st.rerun()
+
+# --- PANTALLA INTERMEDIA: DIFÍCIL (ADAPTABLE) ---
+elif st.session_state.fase == "PANTALLA_DIFICIL":
+    st.subheader("🔴 Nivel Avanzado")
+    st.title("IMÁGENES DIFÍCILES")
+    st.write("Bloque final del quiz IAVSCEREBRO.")
+    
+    # Comprobar si la carpeta tiene imágenes cargadas
+    imagenes_dificiles = obtener_muestra_imagenes(CARPETA_DIFICIL)
+    
+    if not imagenes_dificiles:
+        st.info("ℹ️ Bloque difícil vacío por el momento. Avanzando automáticamente a los resultados finales.")
+        if st.button("Ver Resultados Totales", use_container_width=True):
+            st.session_state.fase = "FINAL"
             st.rerun()
-           
     else:
-        # MODO ÁRBITRO INSTANTÁNEO CON AUTO-ENFOQUE
-        st.info("🎯 Escuchando teclado... Presiona [V] para acierto o [X] para fallo.")
-        tecla_pulsada = st.text_input("Receptor", key=f"reflejo_{st.session_state.ronda_actual}", label_visibility="collapsed")
+        if st.button("Iniciar Bloque Difícil", use_container_width=True):
+            st.session_state.imagenes_partida = imagenes_dificiles
+            st.session_state.indice_imagen = 0
+            st.session_state.fase = "QUIZ_DIFICIL"
+            st.session_state.marca_tiempo_inicio = time.time()
+            st.rerun()
 
-        # Inyección de código oculto para mantener enfocada la caja de texto en Modo Árbitro
+# --- EJECUCIÓN DEL QUIZ ACTIVO ---
+elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
+    # Extraer el nombre legible de la dificultad
+    nivel_actual = st.session_state.fase.replace("QUIZ_", "")
+    lista_actual = st.session_state.imagenes_partida
+    idx = st.session_state.indice_imagen
+
+    if idx < len(lista_actual):
+        ruta_img = lista_actual[idx]
+        nombre_archivo = os.path.basename(ruta_img)
+        
+        st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
+        st.image(ruta_img, use_container_width=True)
+        
+        # --- Cronómetro en milisegundos en tiempo real ---
+        tiempo_actual = time.time()
+        milisegundos_transcurridos = int((tiempo_actual - st.session_state.marca_tiempo_inicio) * 1000)
+        
+        st.markdown(f"⏱️ **Tiempo transcurrido:** `{milisegundos_transcurridos} ms`")
+        
+        # Input camuflado para capturar las teclas de manera inmediata
+        st.write("👇 Presiona **V** (Acertó) o **X** (Falló) en tu teclado:")
+        entrada_teclado = st.text_input(
+            "Captura", 
+            key=f"tecla_{st.session_state.fase}_{idx}", 
+            label_visibility="collapsed"
+        )
+
+        # Inyección JavaScript para forzar el enfoque inmediato en el campo de texto
         st.components.v1.html(
-            f"""
+            """
             <script>
                 var inputs = window.parent.document.querySelectorAll('input[type="text"]');
-                if (inputs.length > 0) {{
+                if (inputs.length > 0) {
                     inputs[inputs.length - 1].focus();
-                }}
+                }
             </script>
             """,
             height=0,
         )
 
-        if tecla_pulsada:
-            letra = tecla_pulsada.lower().strip()
-            if letra in ['v', 'x']:
-                tiempo_ronda_humano = time.time() - st.session_state.inicio_cronometro
-                st.session_state.tiempo_humano += tiempo_ronda_humano
-               
-                if letra == 'v':
-                    st.session_state.puntos_humano += 1
-                    st.toast("¡Punto Humano! 🎉")
-                else:
-                    st.toast("Fallo del Humano ❌")
-                   
-                st.session_state.ronda_actual += 1
-                st.session_state.inicio_cronometro = time.time()
+        # Evaluar la tecla presionada de inmediato
+        if entrada_teclado:
+            accion = entrada_teclado.lower().strip()
+            if accion in ['v', 'x']:
+                # Registrar dict de datos finales
+                resultado_concursante = "Acertó" if accion == 'v' else "Falló"
+                
+                # Simulación de respuesta paralela de la IA basada en el tiempo real
+                tiempo_ia_ms = int(milisegundos_transcurridos * random.uniform(0.6, 0.9))
+                
+                st.session_state.resultados.append({
+                    "Imagen / Estructura": nombre_archivo,
+                    "Nivel de Dificultad": nivel_actual,
+                    "Tiempo Humano (ms)": milisegundos_transcurridos,
+                    "Estado Concursante": resultado_concursante,
+                    "Tiempo IA (ms)": tiempo_ia_ms
+                })
+                
+                # Forzar el salto directo a la siguiente imagen
+                st.session_state.indice_imagen += 1
+                st.session_state.marca_tiempo_inicio = time.time()
                 st.rerun()
             else:
+                # Si presionan cualquier otra tecla, limpia el input y mantiene la espera
                 st.rerun()
-
-# PANTALLA FINAL
-else:
-    if not st.session_state.ia_processed:
-        with st.spinner("🤖 La IA está resolviendo las 10 imágenes..."):
-            time.sleep(2.0)
-            for foto in st.session_state.fotos_partida:
-                st.session_state.tiempo_ia += random.uniform(1.1, 3.8)
-                if random.random() < 0.78:
-                    st.session_state.puntos_ia += 1
-            st.session_state.ia_procesada = True
-            st.rerun()
-
-    st.success("🏆 ¡Partida Completada!")
-    promedio_humano = round(st.session_state.tiempo_humano / 10, 2)
-    promedio_ia = round(st.session_state.tiempo_ia / 10, 2)
-   
-    ganador_puntos = "👤 Humano" if st.session_state.puntos_humano > st.session_state.puntos_ia else "🤖 IA" if st.session_state.puntos_ia > st.session_state.puntos_humano else "Empate 🤝"
-    ganador_tiempo = "👤 Humano" if st.session_state.tiempo_humano < st.session_state.tiempo_ia else "🤖 IA"
-    ganador_promedio = "👤 Humano" if promedio_humano < promedio_ia else "🤖 IA"
-
-    tabla_resultados = {
-        "Métrica": ["Aciertos Totales", "Tiempo Total", "Tiempo Promedio por Foto"],
-        "👤 Humano": [f"{st.session_state.puntos_humano} / 10", f"{round(st.session_state.tiempo_humano, 2)} s", f"{promedio_humano} s"],
-        "🤖 IA (Bot)": [f"{st.session_state.puntos_ia} / 10", f"{round(st.session_state.tiempo_ia, 2)} s", f"{promedio_ia} s"],
-        "🏆 Ganador": [ganador_puntos, ganador_tiempo, ganador_promedio]
-    }
-    st.table(tabla_resultados)
-    if st.button("🔄 Jugar Nueva Partida"):
-        st.session_state.juego_iniciado = False
+                
+        # Auto-refresco controlado para actualizar visualmente los milisegundos del cronómetro
+        time.sleep(0.05)
         st.rerun()
+        
+    else:
+        # Control de transiciones al agotar las 5 imágenes del bloque actual
+        if st.session_state.fase == "QUIZ_FACIL":
+            st.session_state.fase = "PANTALLA_INTERMEDIA"
+        elif st.session_state.fase == "QUIZ_INTERMEDIA":
+            st.session_state.fase = "PANTALLA_DIFICIL"
+        elif st.session_state.fase == "QUIZ_DIFICIL":
+            st.session_state.fase = "FINAL"
+        st.rerun()
+
+# --- TABLA FINAL DE METRICAS ---
+elif st.session_state.fase == "FINAL":
+    st.title("📊 MÉTRICAS FINALES — IAVSCEREBRO")
+    st.success("¡Prueba concluida exitosamente!")
+    
+    st.write("### Tabla Comparativa de Tiempos de la IA vs Humano")
+    if st.session_state.resultados:
+        # Generar tabla limpia nativa en base a la lista recolectada
+        st.table(st.session_state.resultados)
+    else:
+        st.info("No se recolectaron datos durante el quiz.")
+        
+    if st.button("🔄 Reiniciar Nueva Evaluación", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+
 
