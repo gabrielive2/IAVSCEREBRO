@@ -153,7 +153,8 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                         }}
                     }}
                 }}
-                doc.addEventListener('keydown', escucharTeclas);
+                doc.removeEventListener('keydown', escucharTeclas);
+                doc.addeventlistener('keydown', escucharteclas);
                 </script>
                 """,
                 height=0,
