@@ -131,53 +131,66 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         tiempo_actual = time.time()
         segundos_transcurridos = round(tiempo_actual - st.session_state.marca_tiempo_inicio, 1)
         st.markdown(f"⏱️ **Tiempo transcurrido:** `{segundos_transcurridos} s`")
-        
-        if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
-            st.write("⌨️ **Presiona [V] para Acertó o [X] para Falló directamente en tu teclado**.")
-            val_receptor = st.text_input("ReceptorJS", key=f"js_rec_{st.session_state.fase}_{idx}", label_visibility="collapsed")
+
+            if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
+            st.write("⌨️ **INSTRUCCIONES DEL ÁRBITRO:**")
+            st.write("🟢 Presiona **Enter** si el concursante **ACERTÓ**.")
+            st.write("🔴 Presiona la barra de **Espacio** si el concursante **FALLÓ**.")
             
+            # Un solo campo de texto que captura las acciones del teclado
+            entrada_arbitro = st.text_input(
+                "Control Árbitro", 
+                key=f"arbitro_input_{st.session_state.fase}_{idx}", 
+                label_visibility="collapsed"
+            )
+            
+            # JavaScript oculto para mantener siempre el foco en el teclado y leer el espacio
             st.components.v1.html(
                 f"""
                 <script>
                 var doc = window.parent.document;
-                function escucharTeclas(e) {{
-                    var letra = e.key.toLowerCase();
-                    if (letra === 'v' || letra === 'x') {{
-                        doc.removeEventListener('keydown', escucharTeclas);
-                        var inputs = doc.querySelectorAll('input[type="text"]');
-                        if (inputs.length > 0) {{
-                            var targetInput = inputs[inputs.length - 1];
-                            targetInput.value = letra;
-                            targetInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                            targetInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                var inputs = doc.querySelectorAll('input[type="text"]');
+                if (inputs.length > 0) {{
+                    var target = inputs[inputs.length - 1];
+                    target.focus();
+                    
+                    // Si el usuario presiona espacio, le ponemos un caracter especial para detectarlo en Python
+                    target.onkeydown = function(e) {{
+                        if (e.key === ' ') {{
+                            target.value = 'espacio';
                         }}
-                    }}
+                    }};
                 }}
-                doc.removeEventListener('keydown', escucharTeclas);
-                doc.addeventlistener('keydown', escucharteclas);
                 </script>
                 """,
                 height=0,
             )
             
-            if val_receptor:
-                accion = val_receptor.lower().strip()
-                if accion in ['v', 'x']:
-                    resultado_humano = "Acertó" if accion == 'v' else "Falló"
-                    ia_achunto = random.choice(["Acertó", "Falló"])
-                    tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
+            if entrada_arbitro:
+                # Si se presionó enter sin escribir nada (o se escribió algo por error) es ACERTO
+                # Si el JS detectó la barra espaciadora, el valor será 'espacio' y es FALLO
+                if entrada_arbitro.strip().lower() == "espacio":
+                    resultado_humano = "Falló"
+                else:
+                    resultado_humano = "Acertó"
                     
-                    st.session_state.resultados.append({
-                        "Imagen": nombre_archivo,
-                        "Nivel": nivel_actual,
-                        "Tiempo Humano": f"{segundos_transcurridos} s",
-                        "Humano": resultado_humano,
-                        "Tiempo IA": f"{tiempo_ia_s} s",
-                        "IA (Acertó)": ia_acerto
-                    })
-                    st.session_state.indice_imagen += 1
-                    st.session_state.marca_tiempo_inicio = time.time()
-                    st.rerun()
+                ia_achunto = random.choice(["Acertó", "Falló"])
+                tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
+                
+                st.session_state.resultados.append({
+                    "Imagen": nombre_archivo,
+                    "Nivel": nivel_actual,
+                    "Tiempo Humano": f"{segundos_transcurridos} s",
+                    "Humano": resultado_humano,
+                    "Tiempo IA": f"{tiempo_ia_s} s",
+                    "IA (Achuntó)": ia_achunto
+                })
+                
+                st.session_state.indice_imagen += 1
+                st.session_state.marca_tiempo_inicio = time.time()
+                st.rerun()
+
+        
         else:
             respuesta_escrita = st.text_input("¿Qué animal es este? (Escribe el nombre y presiona Enter):", key=f"txt_{st.session_state.fase}_{idx}")
             if respuesta_escrita:
