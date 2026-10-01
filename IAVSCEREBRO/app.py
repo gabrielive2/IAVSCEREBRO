@@ -169,7 +169,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                             # Si se presionó enter sin escribir nada (o se escribió algo por error) es ACERTO
                             # Si el JS detectó la barra espaciadora, el valor será 'espacio' y es FALLO
                             if entrada_arbitro.strip().lower() == "espacio":
-                            resultado_humano = "Falló"
+                                resultado_humano = "Falló"
                 else:
                     resultado_humano = "Acertó"
                     
