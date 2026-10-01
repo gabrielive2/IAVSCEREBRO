@@ -124,7 +124,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
         if os.path.exists(ruta_img):
-            st.image(ruta_img, use_container_width=True)
+            st.image(ruta_img, use_column_width=True)
         else:
             st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
         
@@ -223,3 +223,5 @@ elif st.session_state.fase == "FINAL":
         st.info("No hay datos registrados en esta partida.")
         
     if st.button("🔄 Reiniciar Nueva Evaluación", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
