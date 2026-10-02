@@ -12,18 +12,23 @@ CARPETA_INTERMEDIA = "intermedias"
 CARPETA_DIFICIL = "dificiles"
 IMAGENES_POR_BLOQUE = 5
 
-if "fase" not in st.session_state:
-    st.session_state.fase = "INICIO"
-    st.session_state.modo_juego = "Modo Alternativas (A, B, C, D)"
-    st.session_state.imagenes_partida = []
-    st.session_state.indice_imagen = 0
-    st.session_state.resultados = []  
-    st.session_state.marca_tiempo_inicio = 0.0
-    st.session_state.opciones_actuales = []
-    st.session_state.respuesta_correcta = ""
-    st.session_state.respondido = False
-    st.session_state.resultado_ronda = {}
-    st.session_state.ultima_idx = -1
+defaults = {
+    "fase": "INICIO",
+    "modo_juego": "Modo Alternativas (A, B, C, D)",
+    "imagenes_partida": [],
+    "indice_imagen": 0,
+    "resultados": [],  
+    "marca_tiempo_inicio": 0.0,
+    "opciones_actuales": [],
+    "respuesta_correcta": "",
+    "respondido": False,
+    "resultado_ronda": {},
+    "ultima_idx": -1
+}
+
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 def obtener_base64_imagen(ruta):
     if os.path.exists(ruta):
@@ -82,7 +87,7 @@ if st.session_state.fase == "INICIO":
     )
     
     if st.session_state.modo_juego == "Modo Alternativas (A, B, C, D)":
-        st.info("🎯 **Modo Alternativas:** Puedes hacer clic en los botones o presionar las teclas **A, B, C o D** en tu teclado para responder al instante.")
+        st.info("🎯 **Modo Alternativas:** Haz clic en la opción correcta (A, B, C o D).")
     else:
         st.info("✍️ **Modo Escribir:** Escribe el nombre del animal en el cuadro de texto y presiona Enter.")
 
@@ -138,7 +143,6 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         ruta_img = lista_actual[idx]
         nombre_archivo = os.path.basename(ruta_img)
         
-        # Generar opciones de selección múltiple (A, B, C, D) si cambió de imagen y estamos en ese modo
         if st.session_state.ultima_idx != idx and st.session_state.modo_juego == "Modo Alternativas (A, B, C, D)":
             carpeta_map = {"FACIL": CARPETA_FACIL, "INTERMEDIA": CARPETA_INTERMEDIA, "DIFICIL": CARPETA_DIFICIL}
             carpeta_obj = carpeta_map.get(nivel_actual, CARPETA_FACIL)
@@ -168,7 +172,6 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
         
-        # Mostrar imagen actual
         if os.path.exists(ruta_img):
             img_b64_data = obtener_base64_imagen(ruta_img)
             if img_b64_data:
@@ -183,73 +186,48 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         else:
             st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
         
+        # Cronizador dinámico sin bloqueos
         tiempo_actual = time.time()
         segundos_transcurridos = round(tiempo_actual - st.session_state.marca_tiempo_inicio, 1)
         st.markdown(f"⏱️ **Tiempo transcurrido:** `{segundos_transcurridos} s`")
         
         letras = ["a", "b", "c", "d"]
         
+        def procesar_respuesta(op_seleccionada):
+            es_correcto = (op_seleccionada.lower().strip() == st.session_state.respuesta_correcta.lower().strip())
+            resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {st.session_state.respuesta_correcta})"
+            
+            ia_achunto = random.choice(["Acertó", "Falló"])
+            tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
+            
+            st.session_state.resultados.append({
+                "Imagen": nombre_archivo.replace("_borrosa", "").replace("_clara", ""),
+                "Nivel": nivel_actual,
+                "Tiempo Humano": f"{segundos_transcurridos} s",
+                "Humano": resultado_humano,
+                "Tiempo IA": f"{tiempo_ia_s} s",
+                "IA (Achuntó)": ia_achunto
+            })
+            
+            st.session_state.respondido = True
+            st.session_state.resultado_ronda = {
+                "es_correcto": es_correcto,
+                "humano": resultado_humano,
+                "ia": ia_achunto,
+                "tiempo": f"{segundos_transcurridos} s"
+            }
+            st.rerun()
+
         if st.session_state.modo_juego == "Modo Alternativas (A, B, C, D)":
             if not st.session_state.respondido:
-                st.write("🎯 **Selecciona la alternativa (o presiona A, B, C, D en tu teclado):**")
+                st.write("🎯 **Selecciona la alternativa correcta:**")
                 cols = st.columns(2)
                 for i, op in enumerate(st.session_state.opciones_actuales):
                     letra_vis = letras[i].upper() if i < len(letras) else str(i+1)
                     with cols[i % 2]:
                         if st.button(f"[{letra_vis}] {op}", use_container_width=True, key=f"btn_op_{idx}_{i}"):
-                            es_correcto = (op.lower().strip() == st.session_state.respuesta_correcta.lower().strip())
-                            resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {st.session_state.respuesta_correcta})"
-                            
-                            ia_achunto = random.choice(["Acertó", "Falló"])
-                            tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
-                            
-                            st.session_state.resultados.append({
-                                "Imagen": nombre_archivo.replace("_borrosa", "").replace("_clara", ""),
-                                "Nivel": nivel_actual,
-                                "Tiempo Humano": f"{segundos_transcurridos} s",
-                                "Humano": resultado_humano,
-                                "Tiempo IA": f"{tiempo_ia_s} s",
-                                "IA (Achuntó)": ia_achunto
-                            })
-                            
-                            st.session_state.respondido = True
-                            st.session_state.resultado_ronda = {
-                                "es_correcto": es_correcto,
-                                "humano": resultado_humano,
-                                "ia": ia_achunto,
-                                "tiempo": f"{segundos_transcurridos} s"
-                            }
-                            st.rerun()
-
-                # Script de JavaScript integrado para capturar las teclas A, B, C, D y hacer clic automático
-                st.markdown(
-                    """
-                    <script>
-                    const doc = window.parent.document;
-                    if (!window.listenerAdded) {
-                        window.listenerAdded = true;
-                        doc.addEventListener('keydown', function(e) {
-                            // Ignorar si el usuario está escribiendo en algún input de texto
-                            if (doc.activeElement.tagName === 'INPUT' || doc.activeElement.tagName === 'TEXTAREA') return;
-                            
-                            const key = e.key.toLowerCase();
-                            if (['a', 'b', 'c', 'd'].includes(key)) {
-                                const buttons = doc.querySelectorAll('button');
-                                for (let btn of buttons) {
-                                    if (btn.innerText.toLowerCase().startsWith('[' + key + ']')) {
-                                        btn.click();
-                                        break;
-                                    }
-                                }
-                            }
-                        });
-                    }
-                    </script>
-                    """,
-                    unsafe_allow_html=True
-                )
+                            procesar_respuesta(op)
             else:
-                # Pantalla de retroalimentación en Modo Alternativas
                 res = st.session_state.resultado_ronda
                 if res["es_correcto"]:
                     st.success(f"✅ ¡Correcto! Acertaste en {res['tiempo']}.")
@@ -278,7 +256,6 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                     st.session_state.respondido = False
                     st.rerun()
         else:
-            # Modo Escribir Nombre
             nombre_sin_ext, _ = os.path.splitext(nombre_archivo)
             respuesta_escrita = st.text_input("¿Qué animal es este? (Escribe el nombre y presiona Enter):", key=f"txt_{st.session_state.fase}_{idx}")
             if respuesta_escrita:
