@@ -55,7 +55,7 @@ def obtener_muestra_imagenes(carpeta):
             archivos = [
                 os.path.join(carpeta, f)
                 for f in os.listdir(carpeta)
-                if f.lower().endswith(('.png', '.jpeg')) and "_borrosa" in f.lower()
+                if f.lower().endswith(('.jpg', '.jpeg')) and "_borrosa" in f.lower()
             ]
         else:
             archivos = [
@@ -80,6 +80,19 @@ def normalizar(texto):
 def nombre_desde_archivo(nombre_archivo):
     base = os.path.splitext(nombre_archivo)[0]
     return base.replace("_borrosa", "").replace("_clara", "").replace("_", " ").title()
+
+
+def buscar_clara(ruta_borrosa):
+    """Devuelve la ruta de la versión _clara de una imagen _borrosa (o None)."""
+    carpeta = os.path.dirname(ruta_borrosa)
+    base = os.path.splitext(os.path.basename(ruta_borrosa))[0]
+    objetivo = base.lower().replace("_borrosa", "_clara")
+    if os.path.isdir(carpeta):
+        for f in os.listdir(carpeta):
+            nombre, ext = os.path.splitext(f)
+            if nombre.lower() == objetivo and ext.lower() in (".jpg", ".jpeg", ".png"):
+                return os.path.join(carpeta, f)
+    return None
 
 
 def iniciar_bloque(imagenes, fase_quiz):
@@ -267,8 +280,16 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
 
-        if os.path.exists(ruta_img):
-            img_b64_data = obtener_base64_imagen(ruta_img)
+        ruta_mostrar = ruta_img
+        if nivel_actual == "DIFICIL" and st.session_state.respondido:
+            ruta_clara = buscar_clara(ruta_img)
+            if ruta_clara:
+                ruta_mostrar = ruta_clara
+            else:
+                st.warning("No se encontró la versión _clara de esta imagen.")
+
+        if os.path.exists(ruta_mostrar):
+            img_b64_data = obtener_base64_imagen(ruta_mostrar)
             if img_b64_data:
                 st.markdown(
                     f"""
@@ -342,20 +363,6 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                 st.error(f"❌ {res['humano']}")
 
             st.info(f"🤖 **IA:** {res['ia']} | ⏱️ **Tiempo final:** {res['tiempo']}")
-
-            if nivel_actual == "DIFICIL":
-                ruta_clara = ruta_img.replace("_borrosa", "_clara")
-                if os.path.exists(ruta_clara):
-                    img_clara_b64 = obtener_base64_imagen(ruta_clara)
-                    if img_clara_b64:
-                        st.markdown(
-                            f"""
-                            <div style="display: flex; justify-content: center; align-items: center; width: 100%; height: 300px; background-color: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden; margin: 10px 0;">
-                                <img src="data:image/jpeg;base64,{img_clara_b64}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
 
             if st.button("Siguiente Imagen ➡️ (Enter)", use_container_width=True, type="primary"):
                 st.session_state.indice_imagen += 1
