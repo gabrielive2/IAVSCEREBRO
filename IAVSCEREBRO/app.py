@@ -14,7 +14,7 @@ CARPETA_INTERMEDIA = "intermedias"
 CARPETA_DIFICIL = "dificiles"
 IMAGENES_POR_BLOQUE = 5
 
-MODO_ALTERNATIVAS = "Modo Alternativas (A, B, C, D)"
+MODO_ALTERNATIVAS = "Modo Alternativas (1, 2, 3, 4)"
 MODO_ESCRIBIR = "Modo Escribir Nombre"
 
 defaults = {
@@ -136,7 +136,7 @@ COMPONENTE_HTML = """
     setInterval(tick, 100);
   }
 
-  // ---------- Atajos de teclado: A/B/C/D responden, Enter = Siguiente ----------
+  // ---------- Atajos de teclado: 1/2/3/4 responden, Enter = Siguiente ----------
   const P = window.parent;
   if (P.__iavHandler) {
     P.document.removeEventListener('keydown', P.__iavHandler);
@@ -150,7 +150,7 @@ COMPONENTE_HTML = """
     const k = e.key.toLowerCase();
     let destino = null;
 
-    if (k.length === 1 && 'abcd'.includes(k)) {
+    if (k.length === 1 && '1234'.includes(k)) {
       destino = botones.find(b => b.innerText.trim().toLowerCase().startsWith('[' + k + ']'));
     } else if (e.key === 'Enter') {
       destino = botones.find(b => b.innerText.includes('Siguiente'));
@@ -207,7 +207,7 @@ if st.session_state.fase == "INICIO":
     )
 
     if st.session_state.modo_juego == MODO_ALTERNATIVAS:
-        st.info("🎯 **Modo Alternativas:** Presiona las teclas **A, B, C o D** (o haz clic) para responder. "
+        st.info("🎯 **Modo Alternativas:** Presiona las teclas **1, 2, 3 o 4** (o haz clic) para responder. "
                 "Con **Enter** pasas a la siguiente imagen.")
     else:
         st.info("✍️ **Modo Escribir:** Escribe el nombre del animal en el cuadro de texto y presiona Enter.")
@@ -309,7 +309,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             transcurrido = time.time() - st.session_state.marca_tiempo_inicio
             mostrar_cronometro(transcurrido, detenido=False)
 
-        letras = ["A", "B", "C", "D"]
+        letras = ["1", "2", "3", "4"]
 
         def procesar_respuesta(respuesta):
             segundos = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
@@ -342,7 +342,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
         if not st.session_state.respondido:
             if st.session_state.modo_juego == MODO_ALTERNATIVAS:
-                st.write("🎯 **Selecciona la alternativa correcta** (teclas A, B, C, D):")
+                st.write("🎯 **Selecciona la alternativa correcta** (teclas 1, 2, 3, 4):")
                 cols = st.columns(2)
                 for i, op in enumerate(st.session_state.opciones_actuales):
                     letra_vis = letras[i] if i < len(letras) else str(i + 1)
