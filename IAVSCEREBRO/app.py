@@ -6,8 +6,7 @@ import base64
 
 st.set_page_config(page_title="IAVSCEREBRO - Quiz", layout="centered")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FONDO_PATH = os.path.join(BASE_DIR, "fondo", "naturaleza.jpg")
+FONDO_PATH = "fondo/naturaleza.jpg"
 CARPETA_FACIL = "faciles"
 CARPETA_INTERMEDIA = "intermedias"
 CARPETA_DIFICIL = "dificiles"
@@ -31,13 +30,8 @@ def obtener_base64_imagen(ruta):
     return None
 
 def obtener_muestra_imagenes(carpeta):
-    ruta_absoluta_carpeta = os.path.join(BASE_DIR, carpeta)
-    if os.path.exists(ruta_absoluta_carpeta):
-        archivos = [
-            os.path.join(carpeta, f) 
-            for f in os.listdir(ruta_absoluta_carpeta) 
-            if f.lower().endswith(('.jpg', '.jpeg'))
-        ]
+    if os.path.exists(carpeta):
+        archivos = [os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.lower().endswith(('.jpg', '.jpeg'))]
         if len(archivos) >= IMAGENES_POR_BLOQUE:
             return random.sample(archivos, IMAGENES_POR_BLOQUE)
         return archivos
@@ -129,10 +123,8 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         nombre_sin_ext, _ = os.path.splitext(nombre_archivo)
         
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
-        
-        ruta_absoluta_img = os.path.join(BASE_DIR, ruta_img)
-        if os.path.exists(ruta_absoluta_img):
-            st.image(ruta_absoluta_img, use_container_width=True)
+        if os.path.exists(ruta_img):
+            st.image(ruta_img, use_column_width=True)
         else:
             st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
         
@@ -141,60 +133,52 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         st.markdown(f"⏱️ **Tiempo transcurrido:** `{segundos_transcurridos} s`")
         
         if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
-            st.write("⌨️ **INSTRUCCIONES DEL ÁRBITRO:**")
-            st.write("🟢 Presiona **Enter** si el concursante **ACERTÓ**.")
-            st.write("🔴 Presiona la barra de **Espacio** si el concursante **FALLÓ**.")
-            
-            entrada_arbitro = st.text_input(
-                "Control Árbitro", 
-                key=f"arbitro_input_{st.session_state.fase}_{idx}", 
-                label_visibility="collapsed"
-            )
+            st.write("⌨️ **Presiona [V] para Acertó o [X] para Falló directamente en tu teclado**.")
+            val_receptor = st.text_input("ReceptorJS", key=f"js_rec_{st.session_state.fase}_{idx}", label_visibility="collapsed")
             
             st.components.v1.html(
                 f"""
                 <script>
                 var doc = window.parent.document;
-                var inputs = doc.querySelectorAll('input[type="text"]');
-                if (inputs.length > 0) {{
-                    var target = inputs[inputs.length - 1];
-                    target.focus();
-                    target.onkeydown = function(e) {{
-                        if (e.key === ' ') {{
-                            target.value = 'espacio';
+                function escucharTeclas(e) {{
+                    var letra = e.key.toLowerCase();
+                    if (letra === 'v' || letra === 'x') {{
+                        doc.removeEventListener('keydown', escucharTeclas);
+                        var inputs = doc.querySelectorAll('input[type="text"]');
+                        if (inputs.length > 0) {{
+                            var targetInput = inputs[inputs.length - 1];
+                            targetInput.value = letra;
+                            targetInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            targetInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
                         }}
-                    }};
+                    }}
                 }}
+                doc.addEventListener('keydown', escucharTeclas);
                 </script>
                 """,
                 height=0,
             )
             
-            if entrada_arbitro:
-                if entrada_arbitro.strip().lower() == "espacio":
-                    resultado_humano = "Falló"
-                else:
-                    resultado_humano = "Acertó"
+            if val_receptor:
+                accion = val_receptor.lower().strip()
+                if accion in ['v', 'x']:
+                    resultado_humano = "Acertó" if accion == 'v' else "Falló"
+                    ia_achunto = random.choice(["Acertó", "Falló"])
+                    tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
                     
-                ia_achunto = random.choice(["Acertó", "Falló"])
-                tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
-                
-                st.session_state.resultados.append({
-                    "Imagen": nombre_archivo,
-                    "Nivel": nivel_actual,
-                    "Tiempo Humano": f"{segundos_transcurridos} s",
-                    "Humano": resultado_humano,
-                    "Tiempo IA": f"{tiempo_ia_s} s",
-                    "IA (Achuntó)": ia_achunto
-                })
-                
-                st.session_state.indice_imagen += 1
-                st.session_state.marca_tiempo_inicio = time.time()
-                st.rerun()
-
+                    st.session_state.resultados.append({
+                        "Imagen": nombre_archivo,
+                        "Nivel": nivel_actual,
+                        "Tiempo Humano": f"{segundos_transcurridos} s",
+                        "Humano": resultado_humano,
+                        "Tiempo IA": f"{tiempo_ia_s} s",
+                        "IA (Achuntó)": ia_achunto
+                    })
+                    st.session_state.indice_imagen += 1
+                    st.session_state.marca_tiempo_inicio = time.time()
+                    st.rerun()
         else:
             respuesta_escrita = st.text_input("¿Qué animal es este? (Escribe el nombre y presiona Enter):", key=f"txt_{st.session_state.fase}_{idx}")
-            
             if respuesta_escrita:
                 if respuesta_escrita.lower().strip() == nombre_sin_ext.lower().strip():
                     resultado_humano = "Acertó"
@@ -212,7 +196,6 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                     "Tiempo IA": f"{tiempo_ia_s} s",
                     "IA (Achuntó)": ia_achunto
                 })
-                
                 st.session_state.indice_imagen += 1
                 st.session_state.marca_tiempo_inicio = time.time()
                 st.rerun()
@@ -233,13 +216,10 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 elif st.session_state.fase == "FINAL":
     st.title("📊 MÉTRICAS FINALES — IAVSCEREBRO")
     st.success("¡Prueba concluida exitosamente!")
-    
     st.write("### Tabla Comparativa Completa")
     if st.session_state.resultados:
-        st.dataframe(st.seccion_state.resultados, use_container_widtch=true)
+        st.table(st.session_state.resultados)
     else:
-        st.info("no hay datos registrados en esta partida.")
-
-    if st.button("reiniciar nueva evaluacion",use_container_widtch=true):
-        st.secccion_state.clear()
-        st.rerun()
+        st.info("No hay datos registrados en esta partida.")
+        
+    if st.button("🔄 Reiniciar Nueva Evaluación", use_container_width=True):
