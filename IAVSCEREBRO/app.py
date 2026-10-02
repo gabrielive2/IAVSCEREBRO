@@ -151,7 +151,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                         unsafe_allow_html=True
                     )
             else:
-                st.warning("No se encontró la contraparte translúcida (_clara.jpg) para esta imagen.")
+                st.warning("No se encontró la contraparte translúcida (_clara.jpeg) para esta imagen.")
                 
             st.markdown(f"⏱️ **Tiempo final registrado:** `{st.session_state.datos_ronda_dificil['tiempo']}`")
             st.write(f"Humano: {st.session_state.datos_ronda_dificil['humano']} | IA: {st.session_state.datos_ronda_dificil['ia']}")
