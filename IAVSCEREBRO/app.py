@@ -19,6 +19,8 @@ if "fase" not in st.session_state:
     st.session_state.indice_imagen = 0
     st.session_state.resultados = []  
     st.session_state.marca_tiempo_inicio = 0.0
+    st.session_state.revelando_dificil = False
+    st.session_state.datos_ronda_dificil = {}
 
 def obtener_base64_imagen(ruta):
     if os.path.exists(ruta):
@@ -31,7 +33,19 @@ def obtener_base64_imagen(ruta):
 
 def obtener_muestra_imagenes(carpeta):
     if os.path.exists(carpeta):
-        archivos = [os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.lower().endswith(('.jpg', '.jpeg'))]
+        if carpeta == CARPETA_DIFICIL:
+            archivos = [
+                os.path.join(carpeta, f) 
+                for f in os.listdir(carpeta) 
+                if f.lower().endswith(('.jpg', '.jpeg')) and "_borrosa" in f.lower()
+            ]
+        else:
+            archivos = [
+                os.path.join(carpeta, f) 
+                for f in os.listdir(carpeta) 
+                if f.lower().endswith(('.jpg', '.jpeg'))
+            ]
+            
         if len(archivos) >= IMAGENES_POR_BLOQUE:
             return random.sample(archivos, IMAGENES_POR_BLOQUE)
         return archivos
@@ -111,8 +125,7 @@ elif st.session_state.fase == "PANTALLA_DIFICIL":
             st.session_state.fase = "QUIZ_DIFICIL"
             st.session_state.marca_tiempo_inicio = time.time()
             st.rerun()
-
-elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
+        elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
     nivel_actual = st.session_state.fase.replace("QUIZ_", "")
     lista_actual = st.session_state.imagenes_partida
     idx = st.session_state.indice_imagen
@@ -120,69 +133,131 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
     if idx < len(lista_actual):
         ruta_img = lista_actual[idx]
         nombre_archivo = os.path.basename(ruta_img)
-        nombre_sin_ext, _ = os.path.splitext(nombre_archivo)
+        nombre_sin_ext, ext_archivo = os.path.splitext(nombre_archivo)
         
-        st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
-        
-        if os.path.exists(ruta_img):
-            st.image(ruta_img, use_container_width=True)
-        else:
-            st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
-        
-        tiempo_actual = time.time()
-        segundos_transcurridos = round(tiempo_actual - st.session_state.marca_tiempo_inicio, 1)
-        st.markdown(f"⏱️ **Tiempo transcurrido:** `{segundos_transcurridos} s`")
-        
-        if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
-            st.write("🎯 **Evaluación del Árbitro en tiempo real:**")
-            col1, col2 = st.columns(2)
-            accion = None
+        if nivel_actual == "DIFICIL" and st.session_state.revelando_dificil:
+            st.write(f"### Nivel {nivel_actual} — Solución Revelada")
+            ruta_clara = ruta_img.replace("_borrosa", "_clara")
             
-            with col1:
-                if st.button("🟩 ACERTÓ", use_container_width=True, type="primary"):
-                    accion = 'v'
-            with col2:
-                if st.button("🟥 FALLÓ", use_container_width=True):
-                    accion = 'x'
-            
-            if accion in ['v', 'x']:
-                resultado_humano = "Acertó" if accion == 'v' else "Falló"
-                ia_achunto = random.choice(["Acertó", "Falló"])
-                tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
+            if os.path.exists(ruta_clara):
+                img_b64_data = obtener_base64_imagen(ruta_clara)
+                if img_b64_data:
+                    st.markdown(
+                        f"""
+                        <div style="display: flex; justify-content: center; align-items: center; width: 100%; height: 400px; background-color: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
+                            <img src="data:image/jpg;base64,{img_b64_data}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.warning("No se encontró la contraparte translúcida (_clara.jpg) para esta imagen.")
                 
-                st.session_state.resultados.append({
-                    "Imagen": nombre_archivo,
-                    "Nivel": nivel_actual,
-                    "Tiempo Humano": f"{segundos_transcurridos} s",
-                    "Humano": resultado_humano,
-                    "Tiempo IA": f"{tiempo_ia_s} s",
-                    "IA (Achuntó)": ia_achunto
-                })
+            st.markdown(f"⏱️ **Tiempo final registrado:** `{st.session_state.datos_ronda_dificil['tiempo']}`")
+            st.write(f"Humano: {st.session_state.datos_ronda_dificil['humano']} | IA: {st.session_state.datos_ronda_dificil['ia']}")
+            
+            if st.button("Siguiente Imagen ➡️", use_container_width=True, type="primary"):
+                st.session_state.revelando_dificil = False
                 st.session_state.indice_imagen += 1
                 st.session_state.marca_tiempo_inicio = time.time()
                 st.rerun()
+                
         else:
-            respuesta_escrita = st.text_input("¿Qué animal es este? (Escribe el nombre y presiona Enter):", key=f"txt_{st.session_state.fase}_{idx}")
-            if respuesta_escrita:
-                if respuesta_escrita.lower().strip() == nombre_sin_ext.lower().strip():
-                    resultado_humano = "Acertó"
-                else:
-                    resultado_humano = f"Falló (Era: {nombre_sin_ext})"
+            st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
+            
+            if os.path.exists(ruta_img):
+                img_b64_data = obtener_base64_imagen(ruta_img)
+                if img_b64_data:
+                    st.markdown(
+                        f"""
+                        <div style="display: flex; justify-content: center; align-items: center; width: 100%; height: 400px; background-color: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
+                            <img src="data:image/jpg;base64,{img_b64_data}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
+            
+            contenedor_crono = st.empty()
+            tiempo_actual = time.time()
+            segundos_transcurridos = round(tiempo_actual - st.session_state.marca_tiempo_inicio, 1)
+            contenedor_crono.markdown(f"⏱️ **Tiempo transcurrido:** `{segundos_transcurridos} s`")
+            
+            if st.session_state.modo_juego == "Modo Árbitro (Teclas V/X)":
+                st.write("🎯 **Evaluación del Árbitro en tiempo real:**")
+                col1, col2 = st.columns(2)
+                accion = None
                 
-                ia_achunto = random.choice(["Acertó", "Falló"])
-                tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.7, 0.95)), 1)
+                with col1:
+                    if st.button("🟩 ACERTÓ", use_container_width=True, type="primary"):
+                        accion = 'v'
+                with col2:
+                    if st.button("🟥 FALLÓ", use_container_width=True):
+                        accion = 'x'
                 
-                st.session_state.resultados.append({
-                    "Imagen": nombre_archivo,
-                    "Nivel": nivel_actual,
-                    "Tiempo Humano": f"{segundos_transcurridos} s",
-                    "Humano": resultado_humano,
-                    "Tiempo IA": f"{tiempo_ia_s} s",
-                    "IA (Achuntó)": ia_achunto
-                })
-                st.session_state.indice_imagen += 1
-                st.session_state.marca_tiempo_inicio = time.time()
-                st.rerun()
+                if accion in ['v', 'x']:
+                    resultado_humano = "Acertó" if accion == 'v' else "Falló"
+                    ia_achunto = random.choice(["Acertó", "Falló"])
+                    tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.6, 0.9)), 1)
+                    
+                    st.session_state.resultados.append({
+                        "Imagen": nombre_archivo.replace("_borrosa", ""),
+                        "Nivel": nivel_actual,
+                        "Tiempo Humano": f"{segundos_transcurridos} s",
+                        "Humano": resultado_humano,
+                        "Tiempo IA": f"{tiempo_ia_s} s",
+                        "IA (Achuntó)": ia_achunto
+                    })
+                    
+                    if nivel_actual == "DIFICIL":
+                        st.session_state.datos_ronda_dificil = {
+                            "tiempo": f"{segundos_transcurridos} s",
+                            "humano": resultado_humano,
+                            "ia": ia_achunto
+                        }
+                        st.session_state.revelando_dificil = True
+                        st.rerun()
+                    else:
+                        st.session_state.indice_imagen += 1
+                        st.session_state.marca_tiempo_inicio = time.time()
+                        st.rerun()
+            else:
+                respuesta_escrita = st.text_input("¿Qué animal es este? (Escribe el nombre y presiona Enter):", key=f"txt_{st.session_state.fase}_{idx}")
+                if respuesta_escrita:
+                    nombre_limpio_real = nombre_sin_ext.replace("_borrosa", "").lower().strip()
+                    if respuesta_escrita.lower().strip() == nombre_limpio_real:
+                        resultado_humano = "Acertó"
+                    else:
+                        resultado_humano = f"Falló (Era: {nombre_limpio_real})"
+                    
+                    ia_achunto = random.choice(["Acertó", "Falló"])
+                    tiempo_ia_s = round(max(0.1, segundos_transcurridos * random.uniform(0.7, 0.95)), 1)
+                    
+                    st.session_state.resultados.append({
+                        "Imagen": nombre_archivo.replace("_borrosa", ""),
+                        "Nivel": nivel_actual,
+                        "Tiempo Humano": f"{segundos_transcurridos} s",
+                        "Humano": resultado_humano,
+                        "Tiempo IA": f"{tiempo_ia_s} s",
+                        "IA (Achuntó)": ia_achunto
+                    })
+                    
+                    if nivel_actual == "DIFICIL":
+                        st.session_state.datos_ronda_dificil = {
+                            "tiempo": f"{segundos_transcurridos} s",
+                            "humano": resultado_humano,
+                            "ia": ia_achunto
+                        }
+                        st.session_state.revelando_dificil = True
+                        st.rerun()
+                    else:
+                        st.session_state.indice_imagen += 1
+                        st.session_state.marca_tiempo_inicio = time.time()
+                        st.rerun()
+
+            time.sleep(0.1)
+            st.rerun()
     else:
         if st.session_state.fase == "QUIZ_FACIL":
             st.session_state.fase = "PANTALLA_INTERMEDIA"
