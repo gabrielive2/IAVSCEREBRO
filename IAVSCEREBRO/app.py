@@ -137,7 +137,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         
         if nivel_actual == "DIFICIL" and st.session_state.revelando_dificil:
             st.write(f"### Nivel {nivel_actual} — Solución Revelada")
-            ruta_clara = ruta_img.replace("_borrosa", "_clara")
+            ruta_clara = ruta_img.replace("_borrosa", "_clara").replace(".png",".jpeg")
             
             if os.path.exists(ruta_clara):
                 img_b64_data = obtener_base64_imagen(ruta_clara)
