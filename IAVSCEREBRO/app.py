@@ -55,7 +55,7 @@ def obtener_muestra_imagenes(carpeta):
             archivos = [
                 os.path.join(carpeta, f)
                 for f in os.listdir(carpeta)
-                if f.lower().endswith(('.jpg', '.jpeg')) and "_borrosa" in f.lower()
+                if f.lower().endswith(('.png', '.jpeg')) and "_borrosa" in f.lower()
             ]
         else:
             archivos = [
@@ -351,7 +351,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                         st.markdown(
                             f"""
                             <div style="display: flex; justify-content: center; align-items: center; width: 100%; height: 300px; background-color: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden; margin: 10px 0;">
-                                <img src="data:image/jpg;base64,{img_clara_b64}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                                <img src="data:image/jpeg;base64,{img_clara_b64}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
                             </div>
                             """,
                             unsafe_allow_html=True
