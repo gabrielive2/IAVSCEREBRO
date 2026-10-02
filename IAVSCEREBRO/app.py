@@ -14,6 +14,15 @@ CARPETA_INTERMEDIA = "intermedias"
 CARPETA_DIFICIL = "dificiles"
 IMAGENES_POR_BLOQUE = 5
 
+# IAs simuladas: probabilidad de acierto por nivel y rango de tiempo de respuesta (segundos).
+# Son valores inventados y editables: no se consulta ninguna IA real.
+IAS = {
+    "Gemini":  {"acierto": {"FACIL": 0.95, "INTERMEDIA": 0.85, "DIFICIL": 0.70}, "tiempo": (0.8, 2.0)},
+    "Claude":  {"acierto": {"FACIL": 0.95, "INTERMEDIA": 0.88, "DIFICIL": 0.75}, "tiempo": (1.0, 2.5)},
+    "ChatGPT": {"acierto": {"FACIL": 0.96, "INTERMEDIA": 0.86, "DIFICIL": 0.72}, "tiempo": (0.9, 2.2)},
+    "Grok":    {"acierto": {"FACIL": 0.92, "INTERMEDIA": 0.80, "DIFICIL": 0.62}, "tiempo": (0.7, 1.8)},
+}
+
 MODO_ALTERNATIVAS = "Modo Alternativas (1, 2, 3, 4)"
 MODO_ESCRIBIR = "Modo Escribir Nombre"
 
@@ -55,7 +64,7 @@ def obtener_muestra_imagenes(carpeta):
             archivos = [
                 os.path.join(carpeta, f)
                 for f in os.listdir(carpeta)
-                if f.lower().endswith(('.png', '.jpeg')) and "_borrosa" in f.lower()
+                if f.lower().endswith(('.jpg', '.jpeg')) and "_borrosa" in f.lower()
             ]
         else:
             archivos = [
@@ -90,7 +99,7 @@ def buscar_clara(ruta_borrosa):
     if os.path.isdir(carpeta):
         for f in os.listdir(carpeta):
             nombre, ext = os.path.splitext(f)
-            if nombre.lower() == objetivo and ext.lower() in (".jpg", ".jpeg", ".png"):
+            if nombre.lower() == objetivo and ext.lower() in (".png", ".jpeg", ".png"):
                 return os.path.join(carpeta, f)
     return None
 
@@ -318,23 +327,28 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             es_correcto = normalizar(respuesta) == normalizar(correcta)
             resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {correcta})"
 
-            ia_achunto = random.choice(["Acertó", "Falló"])
-            tiempo_ia_s = round(max(0.1, segundos * random.uniform(0.6, 0.9)), 1)
-
-            st.session_state.resultados.append({
+            fila = {
                 "Imagen": nombre_archivo.replace("_borrosa", "").replace("_clara", ""),
                 "Nivel": nivel_actual,
                 "Tiempo Humano": f"{segundos} s",
                 "Humano": resultado_humano,
-                "Tiempo IA": f"{tiempo_ia_s} s",
-                "IA (Achuntó)": ia_achunto
-            })
+            }
+            ias_ronda = []
+            for nombre_ia, cfg in IAS.items():
+                acerto = random.random() < cfg["acierto"][nivel_actual]
+                t_ia = round(random.uniform(*cfg["tiempo"]), 1)
+                texto = "Acertó" if acerto else "Falló"
+                fila[nombre_ia] = texto
+                fila[f"Tiempo {nombre_ia}"] = f"{t_ia} s"
+                ias_ronda.append({"IA": nombre_ia, "Resultado": texto, "Tiempo": f"{t_ia} s"})
+
+            st.session_state.resultados.append(fila)
 
             st.session_state.respondido = True
             st.session_state.resultado_ronda = {
                 "es_correcto": es_correcto,
                 "humano": resultado_humano,
-                "ia": ia_achunto,
+                "ias": ias_ronda,
                 "tiempo": f"{segundos} s",
                 "tiempo_s": segundos,
             }
@@ -362,7 +376,9 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             else:
                 st.error(f"❌ {res['humano']}")
 
-            st.info(f"🤖 **IA:** {res['ia']} | ⏱️ **Tiempo final:** {res['tiempo']}")
+            st.info(f"⏱️ **Tu tiempo final:** {res['tiempo']}")
+            st.write("🤖 **Así les fue a las IAs:**")
+            st.table(res["ias"])
 
             if st.button("Siguiente Imagen ➡️ (Enter)", use_container_width=True, type="primary"):
                 st.session_state.indice_imagen += 1
@@ -385,6 +401,29 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 elif st.session_state.fase == "FINAL":
     st.title("📊 MÉTRICAS FINALES — IAVSCEREBRO")
     st.success("¡Prueba concluida exitosamente!")
+    if st.session_state.resultados:
+        st.write("### 🏆 Marcador")
+        participantes = ["Humano"] + list(IAS.keys())
+        marcador = []
+        for nombre in participantes:
+            aciertos = 0
+            tiempos = []
+            for fila in st.session_state.resultados:
+                if str(fila[nombre]).startswith("Acertó"):
+                    aciertos += 1
+                clave_t = "Tiempo Humano" if nombre == "Humano" else f"Tiempo {nombre}"
+                tiempos.append(float(fila[clave_t].replace(" s", "")))
+            marcador.append({
+                "Participante": "🧠 Humano" if nombre == "Humano" else f"🤖 {nombre}",
+                "Aciertos": f"{aciertos} / {len(st.session_state.resultados)}",
+                "Tiempo promedio": f"{round(sum(tiempos) / len(tiempos), 1)} s",
+                "_orden": aciertos,
+            })
+        marcador.sort(key=lambda m: -m["_orden"])
+        for m in marcador:
+            m.pop("_orden")
+        st.table(marcador)
+
     st.write("### Tabla Comparativa Completa")
     if st.session_state.resultados:
         st.dataframe(st.session_state.resultados, use_container_width=True)
