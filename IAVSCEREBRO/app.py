@@ -223,3 +223,5 @@ elif st.session_state.fase == "FINAL":
         st.info("No hay datos registrados en esta partida.")
         
     if st.button("🔄 Reiniciar Nueva Evaluación", use_container_width=True):
+        st.session_state.clear()
+        st:rerun()
