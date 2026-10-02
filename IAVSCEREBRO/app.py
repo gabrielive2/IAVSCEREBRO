@@ -37,7 +37,7 @@ def obtener_muestra_imagenes(carpeta):
             archivos = [
                 os.path.join(carpeta, f) 
                 for f in os.listdir(carpeta) 
-                if f.lower().endswith(('.jpg', '.jpeg')) and "_borrosa" in f.lower()
+                if f.lower().endswith(('.png', '.jpeg')) and "_borrosa" in f.lower()
             ]
         else:
             archivos = [
