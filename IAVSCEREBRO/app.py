@@ -125,10 +125,10 @@ elif st.session_state.fase == "PANTALLA_DIFICIL":
             st.session_state.fase = "QUIZ_DIFICIL"
             st.session_state.marca_tiempo_inicio = time.time()
             st.rerun()
-     elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
-         nivel_actual = st.session_state.fase.replace("QUIZ_", "")
-         lista_actual = st.session_state.imagenes_partida
-         idx = st.session_state.indice_imagen
+elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
+    nivel_actual = st.session_state.fase.replace("QUIZ_", "")
+    lista_actual = st.session_state.imagenes_partida
+    idx = st.session_state.indice_imagen
 
     if idx < len(lista_actual):
         ruta_img = lista_actual[idx]
