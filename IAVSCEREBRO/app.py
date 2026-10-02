@@ -4,6 +4,7 @@ import os
 import time
 import random
 import base64
+import unicodedata
 
 st.set_page_config(page_title="IAVSCEREBRO - Quiz", layout="centered")
 
@@ -67,6 +68,13 @@ def obtener_muestra_imagenes(carpeta):
             return random.sample(archivos, IMAGENES_POR_BLOQUE)
         return archivos
     return []
+
+
+def normalizar(texto):
+    """Minúsculas, sin tildes, sin guiones bajos y sin espacios de más."""
+    texto = unicodedata.normalize("NFD", texto)
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    return " ".join(texto.replace("_", " ").lower().split())
 
 
 def nombre_desde_archivo(nombre_archivo):
@@ -244,13 +252,14 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                 carpeta_obj = carpeta_map.get(nivel_actual, CARPETA_FACIL)
 
                 nombres_pool = []
-                for f in os.listdir(carpeta_obj):
+                archivos_carpeta = os.listdir(carpeta_obj) if os.path.isdir(carpeta_obj) else []
+                for f in archivos_carpeta:
                     if f.lower().endswith(('.jpg', '.jpeg')):
                         n = nombre_desde_archivo(f)
                         if n not in nombres_pool:
                             nombres_pool.append(n)
 
-                distractores = [n for n in nombres_pool if n.lower() != nombre_correcto.lower()]
+                distractores = [n for n in nombres_pool if normalizar(n) != normalizar(nombre_correcto)]
                 random.shuffle(distractores)
                 opciones = distractores[:3] + [nombre_correcto]
                 random.shuffle(opciones)
@@ -285,7 +294,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             segundos = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
             correcta = st.session_state.respuesta_correcta
 
-            es_correcto = respuesta.lower().strip() == correcta.lower().strip()
+            es_correcto = normalizar(respuesta) == normalizar(correcta)
             resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {correcta})"
 
             ia_achunto = random.choice(["Acertó", "Falló"])
