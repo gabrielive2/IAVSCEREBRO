@@ -25,7 +25,7 @@ IAS = {
 
 MODO_ALTERNATIVAS = "Modo Alternativas (1, 2, 3, 4)"
 MODO_ESCRIBIR = "Modo Escribir Nombre"
-MODO_ESPACIO = "Modo Espacio + Enter"
+MODO_VF = "Modo Verdadero / Falso (Espacio, T, F)"
 
 defaults = {
     "fase": "INICIO",
@@ -39,6 +39,11 @@ defaults = {
     "respondido": False,
     "resultado_ronda": {},
     "ultima_idx": -1,
+    # Modo Verdadero / Falso
+    "pausado": False,                 # True cuando se presionó Espacio (tiempo detenido)
+    "tiempo_pausa_s": 0.0,            # segundos transcurridos al presionar Espacio
+    "nombre_propuesto": "",           # nombre que se muestra y hay que juzgar
+    "propuesta_es_correcta": True,    # True si el nombre propuesto es el real
 }
 
 for key, val in defaults.items():
@@ -110,6 +115,7 @@ def iniciar_bloque(imagenes, fase_quiz):
     st.session_state.indice_imagen = 0
     st.session_state.ultima_idx = -1      # fuerza regenerar opciones en la 1ª imagen
     st.session_state.respondido = False
+    st.session_state.pausado = False
     st.session_state.fase = fase_quiz
     st.session_state.marca_tiempo_inicio = time.time()
     st.rerun()
@@ -120,6 +126,12 @@ def iniciar_bloque(imagenes, fase_quiz):
 # ----------------------------------------------------------------------
 # IMPORTANTE: st.markdown NO ejecuta <script>. Para correr JavaScript hay que
 # usar components.html, que lo ejecuta dentro de un iframe.
+#
+# Atajos (el script mira qué botones hay en pantalla, así que sirve para todos los modos):
+#   1 / 2 / 3 / 4  -> alternativas (modo Alternativas)
+#   Espacio        -> "Parar tiempo" (modo Verdadero / Falso) y congela el cronómetro al instante
+#   T / F          -> Verdadero / Falso (después de parar el tiempo)
+#   Enter          -> Siguiente imagen
 COMPONENTE_HTML = """
 <style>
   body { margin: 0; background: transparent; font-family: sans-serif; }
@@ -136,6 +148,7 @@ COMPONENTE_HTML = """
   const detenido = %%DETENIDO%%;
   const transcurrido = %%TRANSCURRIDO%%;   // segundos que ya pasaron (calculado en Python)
   const el = document.getElementById('crono');
+  let intervalo = null;
 
   if (detenido) {
     el.innerText = transcurrido.toFixed(1);
@@ -143,66 +156,30 @@ COMPONENTE_HTML = """
     const inicio = Date.now() - transcurrido * 1000;
     const tick = () => { el.innerText = ((Date.now() - inicio) / 1000).toFixed(1); };
     tick();
-    setInterval(tick, 100);
+    intervalo = setInterval(tick, 100);
   }
 
   // ---------- Atajos de teclado ----------
-  // Modo normal: 1/2/3/4 responden, Enter = Siguiente.
-  // Modo Espacio + Enter: Espacio recorre las alternativas, Enter confirma / pasa a la siguiente.
-  const ESPACIO = %%ESPACIO%%;
   const P = window.parent;
   if (P.__iavHandler) {
     P.document.removeEventListener('keydown', P.__iavHandler);
   }
-
-  const opciones = () => Array.from(P.document.querySelectorAll('button'))
-    .filter(b => /^\\[[1-4]\\]/.test(b.innerText.trim()));
-
-  const marcar = (sel) => opciones().forEach((b, i) => {
-    b.style.outline = (i === sel) ? '4px solid #f59e0b' : '';
-    b.style.outlineOffset = '2px';
-  });
-
-  if (ESPACIO) {
-    const ops = opciones();
-    if (ops.length === 0) {
-      // Ronda respondida: se limpia la selección para la próxima imagen
-      P.__iavSel = -1;
-      P.__iavFirma = '';
-    } else {
-      // Si cambian las alternativas (nueva imagen), se reinicia la selección
-      const firma = ops.map(b => b.innerText).join('|');
-      if (P.__iavFirma !== firma) { P.__iavFirma = firma; P.__iavSel = -1; }
-      marcar(P.__iavSel ?? -1);
-    }
-  }
-
   P.__iavHandler = function (e) {
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-    if (ESPACIO) {
-      const ops = opciones();
-      if (e.code === 'Space' && ops.length) {
-        e.preventDefault();
-        if (P.document.activeElement) P.document.activeElement.blur();
-        P.__iavSel = ((P.__iavSel ?? -1) + 1) % ops.length;
-        marcar(P.__iavSel);
-        return;
-      }
-      if (e.key === 'Enter' && ops.length) {
-        e.preventDefault();
-        if (P.__iavSel >= 0) ops[P.__iavSel].click();
-        return;
-      }
-    }
-
     const botones = Array.from(P.document.querySelectorAll('button'));
     const k = e.key.toLowerCase();
     let destino = null;
 
-    if (k.length === 1 && '1234'.includes(k)) {
+    if (e.code === 'Space') {
+      destino = botones.find(b => b.innerText.includes('Parar tiempo'));
+      if (destino) {
+        if (intervalo) clearInterval(intervalo);   // congela el reloj al instante
+        if (P.document.activeElement) P.document.activeElement.blur();
+      }
+    } else if (k.length === 1 && '1234tf'.includes(k)) {
       destino = botones.find(b => b.innerText.trim().toLowerCase().startsWith('[' + k + ']'));
     } else if (e.key === 'Enter') {
       destino = botones.find(b => b.innerText.includes('Siguiente'));
@@ -220,12 +197,10 @@ COMPONENTE_HTML = """
 
 
 def mostrar_cronometro(transcurrido, detenido):
-    espacio = st.session_state.modo_juego == MODO_ESPACIO
     html = (
         COMPONENTE_HTML
         .replace("%%DETENIDO%%", "true" if detenido else "false")
         .replace("%%TRANSCURRIDO%%", f"{max(0.0, transcurrido):.3f}")
-        .replace("%%ESPACIO%%", "true" if espacio else "false")
     )
     components.html(html, height=50)
 
@@ -257,15 +232,16 @@ if st.session_state.fase == "INICIO":
 
     st.session_state.modo_juego = st.selectbox(
         "Selecciona el modo de juego para la partida:",
-        [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_ESPACIO]
+        [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_VF]
     )
 
     if st.session_state.modo_juego == MODO_ALTERNATIVAS:
         st.info("🎯 **Modo Alternativas:** Presiona las teclas **1, 2, 3 o 4** (o haz clic) para responder. "
                 "Con **Enter** pasas a la siguiente imagen.")
-    elif st.session_state.modo_juego == MODO_ESPACIO:
-        st.info("⌨️ **Modo Espacio + Enter:** Con **Espacio** recorres las alternativas, "
-                "con **Enter** confirmas tu respuesta y luego pasas a la siguiente imagen.")
+    elif st.session_state.modo_juego == MODO_VF:
+        st.info("⌨️ **Modo Verdadero / Falso:** Verás una imagen y un nombre. Cuando sepas si el nombre es correcto, "
+                "presiona **Espacio** para detener el tiempo; luego **T** (verdadero) o **F** (falso). "
+                "Con **Enter** pasas a la siguiente imagen.")
     else:
         st.info("✍️ **Modo Escribir:** Escribe el nombre del animal en el cuadro de texto y presiona Enter.")
 
@@ -314,26 +290,38 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         if st.session_state.ultima_idx != idx:
             st.session_state.respuesta_correcta = nombre_correcto
             st.session_state.respondido = False
+            st.session_state.pausado = False
+            st.session_state.tiempo_pausa_s = 0.0
             st.session_state.resultado_ronda = {}
             st.session_state.ultima_idx = idx
 
-            if st.session_state.modo_juego in (MODO_ALTERNATIVAS, MODO_ESPACIO):
+            if st.session_state.modo_juego in (MODO_ALTERNATIVAS, MODO_VF):
                 carpeta_map = {"FACIL": CARPETA_FACIL, "INTERMEDIA": CARPETA_INTERMEDIA, "DIFICIL": CARPETA_DIFICIL}
                 carpeta_obj = carpeta_map.get(nivel_actual, CARPETA_FACIL)
 
                 nombres_pool = []
                 archivos_carpeta = os.listdir(carpeta_obj) if os.path.isdir(carpeta_obj) else []
                 for f in archivos_carpeta:
-                    if f.lower().endswith(('.jpg', '.jpeg')):
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png')):
                         n = nombre_desde_archivo(f)
                         if n not in nombres_pool:
                             nombres_pool.append(n)
 
                 distractores = [n for n in nombres_pool if normalizar(n) != normalizar(nombre_correcto)]
                 random.shuffle(distractores)
-                opciones = distractores[:3] + [nombre_correcto]
-                random.shuffle(opciones)
-                st.session_state.opciones_actuales = opciones
+
+                if st.session_state.modo_juego == MODO_ALTERNATIVAS:
+                    opciones = distractores[:3] + [nombre_correcto]
+                    random.shuffle(opciones)
+                    st.session_state.opciones_actuales = opciones
+                else:
+                    # Verdadero / Falso: 50% muestra el nombre real, 50% un nombre equivocado
+                    if distractores and random.random() < 0.5:
+                        st.session_state.nombre_propuesto = random.choice(distractores)
+                        st.session_state.propuesta_es_correcta = False
+                    else:
+                        st.session_state.nombre_propuesto = nombre_correcto
+                        st.session_state.propuesta_es_correcta = True
 
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
 
@@ -359,20 +347,25 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         else:
             st.error(f"No se pudo cargar la imagen en la ruta: {ruta_img}")
 
-        # Cronómetro: corre mientras no se responde; al responder queda congelado
+        # Cronómetro: corre mientras no se responde (ni se pausa); si se presionó Espacio
+        # o ya se respondió, queda congelado
         if st.session_state.respondido:
             mostrar_cronometro(st.session_state.resultado_ronda["tiempo_s"], detenido=True)
+        elif st.session_state.pausado:
+            mostrar_cronometro(st.session_state.tiempo_pausa_s, detenido=True)
         else:
             transcurrido = time.time() - st.session_state.marca_tiempo_inicio
             mostrar_cronometro(transcurrido, detenido=False)
 
         letras = ["1", "2", "3", "4"]
 
-        def procesar_respuesta(respuesta):
-            segundos = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
+        def procesar_respuesta(respuesta, segundos=None, es_correcto=None):
+            if segundos is None:
+                segundos = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
             correcta = st.session_state.respuesta_correcta
 
-            es_correcto = normalizar(respuesta) == normalizar(correcta)
+            if es_correcto is None:
+                es_correcto = normalizar(respuesta) == normalizar(correcta)
             resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {correcta})"
 
             fila = {
@@ -403,17 +396,42 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             st.rerun()
 
         if not st.session_state.respondido:
-            if st.session_state.modo_juego in (MODO_ALTERNATIVAS, MODO_ESPACIO):
-                if st.session_state.modo_juego == MODO_ESPACIO:
-                    st.write("⌨️ **Espacio** para cambiar de alternativa, **Enter** para confirmar:")
-                else:
-                    st.write("🎯 **Selecciona la alternativa correcta** (teclas 1, 2, 3, 4):")
+            if st.session_state.modo_juego == MODO_ALTERNATIVAS:
+                st.write("🎯 **Selecciona la alternativa correcta** (teclas 1, 2, 3, 4):")
                 cols = st.columns(2)
                 for i, op in enumerate(st.session_state.opciones_actuales):
                     letra_vis = letras[i] if i < len(letras) else str(i + 1)
                     with cols[i % 2]:
                         if st.button(f"[{letra_vis}] {op}", use_container_width=True, key=f"btn_op_{idx}_{i}"):
                             procesar_respuesta(op)
+
+            elif st.session_state.modo_juego == MODO_VF:
+                st.markdown(f"### ❓ ¿Este animal es **{st.session_state.nombre_propuesto}**?")
+
+                if not st.session_state.pausado:
+                    st.write("⌨️ Presiona **Espacio** para detener el tiempo cuando tengas tu respuesta.")
+                    if st.button("⏸️ Parar tiempo (Espacio)", use_container_width=True, key=f"btn_pausa_{idx}"):
+                        st.session_state.tiempo_pausa_s = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
+                        st.session_state.pausado = True
+                        st.rerun()
+                else:
+                    st.write("⏸️ **Tiempo detenido.** Presiona **T** (verdadero) o **F** (falso):")
+                    col_v, col_f = st.columns(2)
+                    with col_v:
+                        if st.button("[T] Verdadero", use_container_width=True, key=f"btn_t_{idx}"):
+                            procesar_respuesta(
+                                "verdadero",
+                                segundos=st.session_state.tiempo_pausa_s,
+                                es_correcto=st.session_state.propuesta_es_correcta,
+                            )
+                    with col_f:
+                        if st.button("[F] Falso", use_container_width=True, key=f"btn_f_{idx}"):
+                            procesar_respuesta(
+                                "falso",
+                                segundos=st.session_state.tiempo_pausa_s,
+                                es_correcto=not st.session_state.propuesta_es_correcta,
+                            )
+
             else:
                 with st.form(key=f"form_{st.session_state.fase}_{idx}"):
                     respuesta_escrita = st.text_input("¿Qué animal es este? (Escribe el nombre y presiona Enter):")
@@ -435,6 +453,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                 st.session_state.indice_imagen += 1
                 st.session_state.marca_tiempo_inicio = time.time()
                 st.session_state.respondido = False
+                st.session_state.pausado = False
                 st.rerun()
     else:
         if st.session_state.fase == "QUIZ_FACIL":
@@ -446,6 +465,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
         st.session_state.indice_imagen = 0
         st.session_state.ultima_idx = -1
         st.session_state.respondido = False
+        st.session_state.pausado = False
         st.session_state.marca_tiempo_inicio = time.time()
         st.rerun()
 
