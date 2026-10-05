@@ -25,6 +25,7 @@ IAS = {
 
 MODO_ALTERNATIVAS = "Modo Alternativas (1, 2, 3, 4)"
 MODO_ESCRIBIR = "Modo Escribir Nombre"
+MODO_ESPACIO = "Modo Espacio + Enter"
 
 defaults = {
     "fase": "INICIO",
@@ -145,15 +146,57 @@ COMPONENTE_HTML = """
     setInterval(tick, 100);
   }
 
-  // ---------- Atajos de teclado: 1/2/3/4 responden, Enter = Siguiente ----------
+  // ---------- Atajos de teclado ----------
+  // Modo normal: 1/2/3/4 responden, Enter = Siguiente.
+  // Modo Espacio + Enter: Espacio recorre las alternativas, Enter confirma / pasa a la siguiente.
+  const ESPACIO = %%ESPACIO%%;
   const P = window.parent;
   if (P.__iavHandler) {
     P.document.removeEventListener('keydown', P.__iavHandler);
   }
+
+  const opciones = () => Array.from(P.document.querySelectorAll('button'))
+    .filter(b => /^\\[[1-4]\\]/.test(b.innerText.trim()));
+
+  const marcar = (sel) => opciones().forEach((b, i) => {
+    b.style.outline = (i === sel) ? '4px solid #f59e0b' : '';
+    b.style.outlineOffset = '2px';
+  });
+
+  if (ESPACIO) {
+    const ops = opciones();
+    if (ops.length === 0) {
+      // Ronda respondida: se limpia la selección para la próxima imagen
+      P.__iavSel = -1;
+      P.__iavFirma = '';
+    } else {
+      // Si cambian las alternativas (nueva imagen), se reinicia la selección
+      const firma = ops.map(b => b.innerText).join('|');
+      if (P.__iavFirma !== firma) { P.__iavFirma = firma; P.__iavSel = -1; }
+      marcar(P.__iavSel ?? -1);
+    }
+  }
+
   P.__iavHandler = function (e) {
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (ESPACIO) {
+      const ops = opciones();
+      if (e.code === 'Space' && ops.length) {
+        e.preventDefault();
+        if (P.document.activeElement) P.document.activeElement.blur();
+        P.__iavSel = ((P.__iavSel ?? -1) + 1) % ops.length;
+        marcar(P.__iavSel);
+        return;
+      }
+      if (e.key === 'Enter' && ops.length) {
+        e.preventDefault();
+        if (P.__iavSel >= 0) ops[P.__iavSel].click();
+        return;
+      }
+    }
 
     const botones = Array.from(P.document.querySelectorAll('button'));
     const k = e.key.toLowerCase();
@@ -177,10 +220,12 @@ COMPONENTE_HTML = """
 
 
 def mostrar_cronometro(transcurrido, detenido):
+    espacio = st.session_state.modo_juego == MODO_ESPACIO
     html = (
         COMPONENTE_HTML
         .replace("%%DETENIDO%%", "true" if detenido else "false")
         .replace("%%TRANSCURRIDO%%", f"{max(0.0, transcurrido):.3f}")
+        .replace("%%ESPACIO%%", "true" if espacio else "false")
     )
     components.html(html, height=50)
 
@@ -212,12 +257,15 @@ if st.session_state.fase == "INICIO":
 
     st.session_state.modo_juego = st.selectbox(
         "Selecciona el modo de juego para la partida:",
-        [MODO_ALTERNATIVAS, MODO_ESCRIBIR]
+        [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_ESPACIO]
     )
 
     if st.session_state.modo_juego == MODO_ALTERNATIVAS:
         st.info("🎯 **Modo Alternativas:** Presiona las teclas **1, 2, 3 o 4** (o haz clic) para responder. "
                 "Con **Enter** pasas a la siguiente imagen.")
+    elif st.session_state.modo_juego == MODO_ESPACIO:
+        st.info("⌨️ **Modo Espacio + Enter:** Con **Espacio** recorres las alternativas, "
+                "con **Enter** confirmas tu respuesta y luego pasas a la siguiente imagen.")
     else:
         st.info("✍️ **Modo Escribir:** Escribe el nombre del animal en el cuadro de texto y presiona Enter.")
 
@@ -269,7 +317,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             st.session_state.resultado_ronda = {}
             st.session_state.ultima_idx = idx
 
-            if st.session_state.modo_juego == MODO_ALTERNATIVAS:
+            if st.session_state.modo_juego in (MODO_ALTERNATIVAS, MODO_ESPACIO):
                 carpeta_map = {"FACIL": CARPETA_FACIL, "INTERMEDIA": CARPETA_INTERMEDIA, "DIFICIL": CARPETA_DIFICIL}
                 carpeta_obj = carpeta_map.get(nivel_actual, CARPETA_FACIL)
 
@@ -355,8 +403,11 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             st.rerun()
 
         if not st.session_state.respondido:
-            if st.session_state.modo_juego == MODO_ALTERNATIVAS:
-                st.write("🎯 **Selecciona la alternativa correcta** (teclas 1, 2, 3, 4):")
+            if st.session_state.modo_juego in (MODO_ALTERNATIVAS, MODO_ESPACIO):
+                if st.session_state.modo_juego == MODO_ESPACIO:
+                    st.write("⌨️ **Espacio** para cambiar de alternativa, **Enter** para confirmar:")
+                else:
+                    st.write("🎯 **Selecciona la alternativa correcta** (teclas 1, 2, 3, 4):")
                 cols = st.columns(2)
                 for i, op in enumerate(st.session_state.opciones_actuales):
                     letra_vis = letras[i] if i < len(letras) else str(i + 1)
@@ -429,7 +480,3 @@ elif st.session_state.fase == "FINAL":
         st.dataframe(st.session_state.resultados, use_container_width=True)
     else:
         st.info("No hay datos registrados en esta partida.")
-
-    if st.button("🔄 Reiniciar Nueva Evaluación", use_container_width=True):
-        st.session_state.clear()
-        st.rerun()
