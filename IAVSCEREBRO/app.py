@@ -6,6 +6,7 @@ import random
 import base64
 import unicodedata
 import copy
+import json
 
 st.set_page_config(page_title="IAVSCEREBRO - Quiz", layout="centered")
 
@@ -28,6 +29,12 @@ MODO_ALTERNATIVAS = "Modo Alternativas (1, 2, 3, 4)"
 MODO_ESCRIBIR = "Modo Escribir Nombre"
 MODO_ARBITRO = "Modo Árbitro (Espacio, T, F)"
 
+# Ranking de reacciones humanas más rápidas (se guarda en un archivo JSON junto a este script)
+RANKING_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ranking_reacciones.json")
+MAX_RANKING = 100
+ETIQUETA_MODO = {MODO_ALTERNATIVAS: "Alternativas", MODO_ESCRIBIR: "Escribir", MODO_ARBITRO: "Árbitro"}
+ETIQUETA_NIVEL = {"FACIL": "Fácil", "INTERMEDIA": "Intermedia", "DIFICIL": "Difícil"}
+
 defaults = {
     "fase": "INICIO",
     "modo_juego": MODO_ALTERNATIVAS,
@@ -43,6 +50,10 @@ defaults = {
     # Modo Árbitro
     "pausado": False,          # True cuando se presionó Espacio (tiempo detenido)
     "tiempo_pausa_s": 0.0,     # segundos transcurridos al presionar Espacio
+    # Jugador, ranking y canción de logro
+    "jugador": "",             # nombre del jugador (se conserva entre partidas)
+    "partida_id": 0,           # identifica la partida actual (para marcar tus reacciones con ⭐)
+    "logro_id": 0,             # cambia al terminar la partida: dispara la canción de logro una sola vez
 }
 
 for key, val in defaults.items():
@@ -110,11 +121,103 @@ def buscar_clara(ruta_borrosa):
 
 
 def nueva_partida():
-    """Borra los resultados y vuelve a la pantalla de inicio (conserva el modo elegido)."""
+    """Borra los resultados y vuelve a la pantalla de inicio (conserva el modo elegido y el nombre)."""
     for k, v in defaults.items():
-        if k != "modo_juego":
+        if k not in ("modo_juego", "jugador"):
             st.session_state[k] = copy.deepcopy(v)
     st.rerun()
+
+
+def ir_a_final():
+    st.session_state.fase = "FINAL"
+    st.session_state.logro_id = int(time.time() * 1000)   # dispara la canción de logro
+    st.rerun()
+
+
+# ----------------------------------------------------------------------
+# Ranking de reacciones más rápidas
+# ----------------------------------------------------------------------
+def cargar_ranking():
+    try:
+        with open(RANKING_PATH, encoding="utf-8") as f:
+            datos = json.load(f)
+        return datos if isinstance(datos, list) else []
+    except Exception:
+        return []
+
+
+def guardar_en_ranking(entrada):
+    """Añade una reacción correcta y conserva solo las MAX_RANKING más rápidas."""
+    ranking = cargar_ranking()
+    ranking.append(entrada)
+    ranking.sort(key=lambda r: r.get("tiempo", 9999))
+    ranking = ranking[:MAX_RANKING]
+    try:
+        tmp = RANKING_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(ranking, f, ensure_ascii=False)
+        os.replace(tmp, RANKING_PATH)      # escritura atómica: nunca queda un archivo a medias
+    except Exception:
+        pass
+
+
+def mostrar_ranking(limite=10):
+    ranking = cargar_ranking()
+    if not ranking:
+        st.info("Aún no hay reacciones registradas. ¡Sé el primero en la lista!")
+        return
+    medallas = {1: "🥇", 2: "🥈", 3: "🥉"}
+    actual = st.session_state.partida_id
+    filas = []
+    for i, r in enumerate(ranking[:limite], start=1):
+        mia = bool(actual) and r.get("partida") == actual
+        filas.append({
+            "Puesto": medallas.get(i, str(i)),
+            "Jugador": ("⭐ " if mia else "") + str(r.get("jugador", "?")),
+            "Tiempo": f"{r.get('tiempo', 0)} s",
+            "Animal": r.get("animal", ""),
+            "Nivel": r.get("nivel", ""),
+            "Modo": r.get("modo", ""),
+            "Fecha": r.get("fecha", ""),
+        })
+    st.dataframe(filas, use_container_width=True, hide_index=True)
+    st.caption("Solo cuentan las respuestas correctas, medidas desde que aparece la imagen. "
+               "⭐ = tus reacciones de esta partida.")
+
+
+# ----------------------------------------------------------------------
+# ¿Qué IA se parece más a la reacción humana?
+# ----------------------------------------------------------------------
+def calcular_similitud():
+    """Compara al humano con cada IA ronda por ronda.
+    Similitud = 50 % (mismo resultado: ambos aciertan o ambos fallan)
+              + 50 % (cercanía del tiempo de reacción)."""
+    filas = st.session_state.resultados
+    salida = []
+    for nombre_ia in IAS:
+        coinciden = 0
+        cercanias = []
+        for f in filas:
+            humano_ok = str(f["Humano"]).startswith("Acertó")
+            ia_ok = str(f[nombre_ia]).startswith("Acertó")
+            if humano_ok == ia_ok:
+                coinciden += 1
+            t_h = float(f["Tiempo Humano"].replace(" s", ""))
+            t_ia = float(f[f"Tiempo {nombre_ia}"].replace(" s", ""))
+            cercanias.append(1 - abs(t_h - t_ia) / max(t_h, t_ia, 0.1))
+        p_resultado = coinciden / len(filas)
+        p_tiempo = sum(cercanias) / len(cercanias)
+        total = (0.5 * p_resultado + 0.5 * p_tiempo) * 100
+        salida.append({
+            "IA": f"🤖 {nombre_ia}",
+            "Mismo resultado que tú": f"{coinciden} / {len(filas)}",
+            "Parecido en tiempo": f"{round(p_tiempo * 100)} %",
+            "Similitud total": f"{round(total)} %",
+            "_total": total,
+            "_nombre": nombre_ia,
+        })
+    salida.sort(key=lambda d: -d["_total"])
+    return salida
 
 
 def iniciar_bloque(imagenes, fase_quiz):
@@ -194,6 +297,7 @@ COMPONENTE_HTML = """
       if (Mu && Mu.master) {
         Mu.mute = !Mu.mute;
         Mu.master.gain.setTargetAtTime(Mu.mute ? 0 : Mu.vol, Mu.ctx.currentTime, 0.05);
+        if (Mu.fx) Mu.fx.gain.setTargetAtTime(Mu.mute ? 0 : Mu.vol, Mu.ctx.currentTime, 0.05);
       }
       return;
     } else if (e.key === 'Enter') {
@@ -236,6 +340,7 @@ MUSICA_HTML = """
   const P = window.parent;
   const sonar = %%SONAR%%;
   const volumen = %%VOLUMEN%%;
+  const logroId = %%LOGRO%%;          // 0 = sin canción de logro
 
   if (!P.__iavMus) {
     P.__iavMus = { ctx: null, master: null, timer: null, paso: 0, proxima: 0,
@@ -346,6 +451,46 @@ MUSICA_HTML = """
     if (!M.master) return;
     const objetivo = (M.mute || !M.quiere) ? 0 : M.vol;
     M.master.gain.setTargetAtTime(objetivo, M.ctx.currentTime, 0.1);
+    if (M.fx) M.fx.gain.setTargetAtTime(M.mute ? 0 : M.vol, M.ctx.currentTime, 0.05);
+  }
+
+  // Canción de logro (fanfarria): se toca una sola vez al terminar la partida
+  function fanfarria() {
+    const t0 = M.ctx.currentTime + 0.15;
+    const U = 0.17;                                   // duración de una unidad de tiempo (s)
+    const MELODIA = [
+      [72, 0, 1], [72, 1, 1], [72, 2, 1], [76, 3, 3],           // Do Do Do Mi
+      [74, 6, 1], [74, 7, 1], [74, 8, 1], [79, 9, 4],           // Re Re Re Sol
+      [76, 13, 1], [79, 14, 1], [84, 15, 7]                     // Mi Sol Do (final)
+    ];
+    const ACORDE_FINAL = [[48, 15, 7], [60, 15, 7], [64, 15, 7], [67, 15, 7]];
+
+    function brillo(midi, t, dur, vol) {
+      const f = M.ctx.createBiquadFilter();
+      const g = M.ctx.createGain();
+      f.type = 'lowpass';
+      f.frequency.value = 2600;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+      g.gain.setValueAtTime(vol * 0.7, t + Math.max(0.03, dur - 0.1));
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      [['sawtooth', 0], ['square', 7]].forEach(([tipo, det]) => {
+        const o = M.ctx.createOscillator();
+        o.type = tipo;
+        o.frequency.value = hz(midi);
+        o.detune.value = det;
+        o.connect(f);
+        o.start(t);
+        o.stop(t + dur + 0.05);
+      });
+      f.connect(g);
+      g.connect(M.fx);
+    }
+
+    MELODIA.forEach(([midi, ini, dur]) => brillo(midi, t0 + ini * U, dur * U * 0.92, 0.30));
+    ACORDE_FINAL.forEach(([midi, ini, dur]) => brillo(midi, t0 + ini * U, dur * U * 0.95, 0.14));
+    // destellos agudos al final
+    [96, 100, 103, 108].forEach((midi, i) => brillo(midi, t0 + (16 + i * 0.5) * U, 0.5, 0.08));
   }
 
   function asegurarAudio() {
@@ -356,6 +501,11 @@ MUSICA_HTML = """
       M.master = M.ctx.createGain();
       M.master.gain.value = 0;
       M.master.connect(M.ctx.destination);
+    }
+    if (!M.fx) {                          // canal aparte para la canción de logro
+      M.fx = M.ctx.createGain();
+      M.fx.gain.value = 0;
+      M.fx.connect(M.ctx.destination);
     }
     if (M.ctx.state === 'suspended') M.ctx.resume().catch(() => {});
     aplicarVolumen();
@@ -385,6 +535,17 @@ MUSICA_HTML = """
   if (M.ctx) asegurarAudio();
   if (M.timer) P.clearInterval(M.timer);
   M.timer = P.setInterval(tick, 100);
+
+  // Canción de logro: una sola vez por partida terminada
+  if (logroId && P.__iavLogroHecho !== logroId) {
+    P.__iavLogroHecho = logroId;
+    asegurarAudio();
+    if (M.ctx) {
+      const sonarLogro = () => { try { fanfarria(); } catch (e) {} };
+      if (M.ctx.state === 'running') sonarLogro();
+      else M.ctx.resume().then(sonarLogro).catch(() => {});
+    }
+  }
 })();
 </script>
 """
@@ -399,12 +560,14 @@ def iniciar_musica():
     with st.expander("🎵 Música"):
         activa = st.checkbox("Música de fondo (suena durante las preguntas)", value=True, key="musica_activa")
         volumen = st.slider("Volumen", 0, 100, 40, key="musica_volumen")
-        st.caption("Durante el quiz, la tecla M silencia o activa el sonido.")
+        st.caption("Durante el quiz, la tecla M silencia o activa el sonido. Al terminar suena una canción de logro.")
 
     sonar = activa and st.session_state.fase in FASES_CON_MUSICA
+    logro = int(st.session_state.logro_id) if (activa and st.session_state.fase == "FINAL") else 0
     html = (
         MUSICA_HTML
         .replace("%%SONAR%%", "true" if sonar else "false")
+        .replace("%%LOGRO%%", str(logro))
         .replace("%%VOLUMEN%%", f"{volumen / 100:.2f}")
     )
     components.html(html, height=0)
@@ -438,26 +601,42 @@ if st.session_state.fase == "INICIO":
     st.title("🧠 BIENVENIDO A IAVSCEREBRO")
     st.write("Duelo de velocidad y precisión entre el cerebro humano y la inteligencia artificial.")
 
-    modos = [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_ARBITRO]
-    st.session_state.modo_juego = st.selectbox(
-        "Selecciona el modo de juego para la partida:",
-        modos,
-        index=modos.index(st.session_state.modo_juego),
-    )
+    tab_jugar, tab_ranking = st.tabs(["🎮 Jugar", "⚡ Reacciones más rápidas"])
 
-    if st.session_state.modo_juego == MODO_ALTERNATIVAS:
-        st.info("🎯 **Modo Alternativas:** Presiona las teclas **1, 2, 3 o 4** (o haz clic) para responder. "
-                "Con **Enter** pasas a la siguiente imagen.")
-    elif st.session_state.modo_juego == MODO_ARBITRO:
-        st.info("⚖️ **Modo Árbitro:** El jugador dice en voz alta el nombre del animal y presiona **Espacio** "
-                "para detener el tiempo. Entonces el árbitro ve el nombre correcto y decide con **T** "
-                "(acertó) o **F** (falló). Con **Enter** se pasa a la siguiente imagen.")
-    else:
-        st.info("✍️ **Modo Escribir:** Escribe el nombre del animal en el cuadro de texto y presiona Enter.")
+    with tab_jugar:
+        nombre = st.text_input("👤 Tu nombre (aparecerá en el ranking):",
+                               value=st.session_state.jugador, max_chars=20)
 
-    if st.button("🚀 Comenzar Evaluación", type="primary", use_container_width=True):
-        st.session_state.fase = "PANTALLA_FACIL"
-        st.rerun()
+        modos = [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_ARBITRO]
+        st.session_state.modo_juego = st.selectbox(
+            "Selecciona el modo de juego para la partida:",
+            modos,
+            index=modos.index(st.session_state.modo_juego),
+        )
+
+        if st.session_state.modo_juego == MODO_ALTERNATIVAS:
+            st.info("🎯 **Modo Alternativas:** Presiona las teclas **1, 2, 3 o 4** (o haz clic) para responder. "
+                    "Con **Enter** pasas a la siguiente imagen.")
+        elif st.session_state.modo_juego == MODO_ARBITRO:
+            st.info("⚖️ **Modo Árbitro:** El jugador dice en voz alta el nombre del animal y presiona **Espacio** "
+                    "para detener el tiempo. Entonces el árbitro ve el nombre correcto y decide con **T** "
+                    "(acertó) o **F** (falló). Con **Enter** se pasa a la siguiente imagen.")
+        else:
+            st.info("✍️ **Modo Escribir:** Escribe el nombre del animal en el cuadro de texto y presiona Enter.")
+
+        if st.button("🚀 Comenzar Evaluación", type="primary", use_container_width=True):
+            nombre_limpio = " ".join(nombre.split())
+            if not nombre_limpio:
+                st.warning("✍️ Escribe tu nombre antes de empezar.")
+            else:
+                st.session_state.jugador = nombre_limpio
+                st.session_state.partida_id = int(time.time() * 1000)
+                st.session_state.fase = "PANTALLA_FACIL"
+                st.rerun()
+
+    with tab_ranking:
+        st.write("### ⚡ Las reacciones humanas más rápidas")
+        mostrar_ranking(limite=10)
 
 elif st.session_state.fase == "PANTALLA_FACIL":
     st.subheader("🟢 Nivel Inicial")
@@ -480,8 +659,7 @@ elif st.session_state.fase == "PANTALLA_DIFICIL":
     if not imagenes_dificiles:
         st.info("ℹ️ Bloque difícil vacío por ahora. Avanzando a la tabla de resultados finales.")
         if st.button("Ver Resultados Totales", use_container_width=True):
-            st.session_state.fase = "FINAL"
-            st.rerun()
+            ir_a_final()
     else:
         if st.button("Iniciar Bloque Difícil", use_container_width=True):
             iniciar_bloque(imagenes_dificiles, "QUIZ_DIFICIL")
@@ -588,6 +766,17 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
             st.session_state.resultados.append(fila)
 
+            if es_correcto:
+                guardar_en_ranking({
+                    "jugador": st.session_state.jugador or "Anónimo",
+                    "tiempo": segundos,
+                    "animal": correcta,
+                    "nivel": ETIQUETA_NIVEL.get(nivel_actual, nivel_actual),
+                    "modo": ETIQUETA_MODO.get(st.session_state.modo_juego, ""),
+                    "fecha": time.strftime("%d/%m/%Y"),
+                    "partida": st.session_state.partida_id,
+                })
+
             st.session_state.respondido = True
             st.session_state.resultado_ronda = {
                 "es_correcto": es_correcto,
@@ -670,6 +859,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             st.session_state.fase = "PANTALLA_DIFICIL"
         elif st.session_state.fase == "QUIZ_DIFICIL":
             st.session_state.fase = "FINAL"
+            st.session_state.logro_id = int(time.time() * 1000)   # dispara la canción de logro
         st.session_state.indice_imagen = 0
         st.session_state.ultima_idx = -1
         st.session_state.respondido = False
@@ -679,8 +869,20 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
 elif st.session_state.fase == "FINAL":
     st.title("📊 MÉTRICAS FINALES — IAVSCEREBRO")
-    st.success("¡Prueba concluida exitosamente!")
+    st.success(f"🎉 ¡Prueba concluida, {st.session_state.jugador or 'jugador'}!")
+
     if st.session_state.resultados:
+        # --- IA más parecida a la reacción humana ---
+        similitud = calcular_similitud()
+        mejor = similitud[0]
+        st.write("### 🤝 ¿Qué IA reacciona más como tú?")
+        st.success(f"**{mejor['_nombre']}** fue la IA más parecida a tu reacción: "
+                   f"{mejor['Similitud total']} de parecido.")
+        st.table([{k: v for k, v in fila.items() if not k.startswith("_")} for fila in similitud])
+        st.caption("Parecido = 50 % mismo resultado (ambos aciertan o ambos fallan) + 50 % cercanía del tiempo "
+                   "de reacción, comparado imagen por imagen. Las IAs son simuladas (valores inventados).")
+
+        # --- Marcador ---
         st.write("### 🏆 Marcador")
         participantes = ["Humano"] + list(IAS.keys())
         marcador = []
@@ -702,6 +904,9 @@ elif st.session_state.fase == "FINAL":
         for m in marcador:
             m.pop("_orden")
         st.table(marcador)
+
+    st.write("### ⚡ Reacciones humanas más rápidas")
+    mostrar_ranking(limite=10)
 
     st.write("### Tabla Comparativa Completa")
     if st.session_state.resultados:
