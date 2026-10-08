@@ -359,14 +359,26 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
         letras = ["1", "2", "3", "4"]
 
-        def procesar_respuesta(respuesta, segundos=None, es_correcto=None):
+        def procesar_respuesta(respuesta, segundos=None, dijo_verdadero=None):
             if segundos is None:
                 segundos = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
             correcta = st.session_state.respuesta_correcta
+            era_verdadero = st.session_state.propuesta_es_correcta
 
-            if es_correcto is None:
+            if dijo_verdadero is None:
+                # Modos Alternativas / Escribir
                 es_correcto = normalizar(respuesta) == normalizar(correcta)
-            resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {correcta})"
+                resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {correcta})"
+            else:
+                # Modo Verdadero / Falso: se compara lo que pulsó con lo que era
+                es_correcto = (dijo_verdadero == era_verdadero)
+                if es_correcto:
+                    resultado_humano = "Acertó"
+                else:
+                    resultado_humano = (
+                        f"Falló (Dijiste {'T' if dijo_verdadero else 'F'}, "
+                        f"era {'T' if era_verdadero else 'F'})"
+                    )
 
             fila = {
                 "Imagen": nombre_archivo.replace("_borrosa", "").replace("_clara", ""),
@@ -392,6 +404,9 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                 "ias": ias_ronda,
                 "tiempo": f"{segundos} s",
                 "tiempo_s": segundos,
+                "dijo_verdadero": dijo_verdadero,
+                "era_verdadero": era_verdadero,
+                "nombre_propuesto": st.session_state.nombre_propuesto,
             }
             st.rerun()
 
@@ -422,14 +437,14 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                             procesar_respuesta(
                                 "verdadero",
                                 segundos=st.session_state.tiempo_pausa_s,
-                                es_correcto=st.session_state.propuesta_es_correcta,
+                                dijo_verdadero=True,
                             )
                     with col_f:
                         if st.button("[F] Falso", use_container_width=True, key=f"btn_f_{idx}"):
                             procesar_respuesta(
                                 "falso",
                                 segundos=st.session_state.tiempo_pausa_s,
-                                es_correcto=not st.session_state.propuesta_es_correcta,
+                                dijo_verdadero=False,
                             )
 
             else:
@@ -444,6 +459,15 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                 st.success(f"✅ ¡Correcto! Acertaste en {res['tiempo']}.")
             else:
                 st.error(f"❌ {res['humano']}")
+
+            if res.get("dijo_verdadero") is not None:
+                dijo = "T (Verdadero)" if res["dijo_verdadero"] else "F (Falso)"
+                era = "T (Verdadero)" if res["era_verdadero"] else "F (Falso)"
+                st.write(
+                    f"🔎 Pulsaste **{dijo}**. La respuesta correcta era **{era}**: "
+                    f"el nombre mostrado era «{res['nombre_propuesto']}» y el animal es "
+                    f"**{st.session_state.respuesta_correcta}**."
+                )
 
             st.info(f"⏱️ **Tu tiempo final:** {res['tiempo']}")
             st.write("🤖 **Así les fue a las IAs:**")
