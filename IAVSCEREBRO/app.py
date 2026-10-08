@@ -225,6 +225,8 @@ def mostrar_cronometro(transcurrido, detenido):
 # ----------------------------------------------------------------------
 # - La música se sintetiza en el navegador con la Web Audio API: no hay archivos que
 #   subir ni datos pesados que viajen en cada recarga, así que no puede colapsar la página.
+# - Estilo "cuenta regresiva": tic-toc de reloj, latido grave y un colchón oscuro; en la segunda
+#   mitad de cada ronda los tics se duplican para subir la presión.
 # - Empieza al comenzar las preguntas y se detiene en la pantalla final.
 # - El motor vive en la página principal (no dentro del iframe), por eso no se corta
 #   ni se reinicia cuando Streamlit vuelve a ejecutar el script.
@@ -243,24 +245,75 @@ MUSICA_HTML = """
   M.quiere = sonar;
   M.vol = volumen;
 
-  // ---- Melodía: 4 acordes (Do, La menor, Fa, Sol) con un arpegio suave ----
-  const CORCHEA = 0.36;                       // segundos por corchea (unos 83 bpm)
+  // ---- Música de tensión: reloj + latido + colchón oscuro (composición original) ----
+  const CORCHEA = 0.25;                       // 0.25 s por paso -> un tic cada 0.5 s (120 bpm)
   const PROG = [
-    { bajo: 48, arp: [60, 64, 67, 72] },      // Do
-    { bajo: 45, arp: [57, 60, 64, 69] },      // La menor
-    { bajo: 41, arp: [60, 65, 69, 72] },      // Fa
-    { bajo: 43, arp: [59, 62, 67, 71] }       // Sol
+    { pad: [45, 48, 52], arp: [69, 72, 76, 72] },   // La menor
+    { pad: [41, 45, 48], arp: [65, 69, 72, 69] },   // Fa
+    { pad: [38, 41, 45], arp: [62, 65, 69, 65] },   // Re menor
+    { pad: [40, 44, 47], arp: [64, 68, 71, 68] }    // Mi mayor (acorde de tensión)
   ];
-  const PATRON = [0, 1, 2, 3, 2, 1, 2, 1];
   const hz = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
 
-  function nota(midi, t, dur, tipo, vol) {
+  // Tic / toc del reloj: un "clic" muy corto
+  function click(t, freq, vol) {
     const o = M.ctx.createOscillator();
     const g = M.ctx.createGain();
-    o.type = tipo;
+    o.type = 'square';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    o.connect(g);
+    g.connect(M.master);
+    o.start(t);
+    o.stop(t + 0.06);
+  }
+
+  // Latido grave (lub-dub)
+  function latido(t, vol) {
+    const o = M.ctx.createOscillator();
+    const g = M.ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(48, t + 0.18);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o.connect(g);
+    g.connect(M.master);
+    o.start(t);
+    o.stop(t + 0.35);
+  }
+
+  // Colchón oscuro: acorde grave que sube y baja despacio
+  function colchon(midis, t, dur, vol) {
+    const f = M.ctx.createBiquadFilter();
+    const g = M.ctx.createGain();
+    f.type = 'lowpass';
+    f.frequency.value = 700;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.6);
+    g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    midis.forEach(m => {
+      const o = M.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = hz(m);
+      o.detune.value = (Math.random() - 0.5) * 12;
+      o.connect(f);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    });
+    f.connect(g);
+    g.connect(M.master);
+  }
+
+  // Notas agudas tipo "suspenso"
+  function nota(midi, t, dur, vol) {
+    const o = M.ctx.createOscillator();
+    const g = M.ctx.createGain();
+    o.type = 'triangle';
     o.frequency.value = hz(midi);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g);
     g.connect(M.master);
@@ -269,10 +322,24 @@ MUSICA_HTML = """
   }
 
   function programar(paso, t) {
-    const acorde = PROG[Math.floor(paso / 8) % PROG.length];
+    const compas = Math.floor(paso / 8);
+    const acorde = PROG[compas % PROG.length];
+    const ciclo = Math.floor(compas / PROG.length);
+    const tensa = (ciclo % 4) >= 2;           // en la 2ª mitad de cada ronda, el reloj se acelera
     const pos = paso % 8;
-    if (pos === 0) nota(acorde.bajo, t, CORCHEA * 7.5, 'sine', 0.5);
-    nota(acorde.arp[PATRON[pos]], t, CORCHEA * 2, 'triangle', 0.22);
+
+    if (pos === 0) {
+      colchon(acorde.pad, t, CORCHEA * 8.5, 0.10);
+      latido(t, 0.9);
+    }
+    if (pos === 3) latido(t, 0.5);
+
+    if (pos % 2 === 0) {
+      click(t, pos % 4 === 0 ? 2000 : 1500, pos % 4 === 0 ? 0.14 : 0.10);   // tic ... toc
+    } else {
+      if (tensa) click(t, 2400, 0.06);                                       // tics dobles
+      nota(acorde.arp[(pos - 1) / 2], t, CORCHEA * 1.5, tensa ? 0.09 : 0.05);
+    }
   }
 
   function aplicarVolumen() {
@@ -331,7 +398,7 @@ FASES_CON_MUSICA = (
 def iniciar_musica():
     with st.expander("🎵 Música"):
         activa = st.checkbox("Música de fondo (suena durante las preguntas)", value=True, key="musica_activa")
-        volumen = st.slider("Volumen", 0, 100, 30, key="musica_volumen")
+        volumen = st.slider("Volumen", 0, 100, 40, key="musica_volumen")
         st.caption("Durante el quiz, la tecla M silencia o activa el sonido.")
 
     sonar = activa and st.session_state.fase in FASES_CON_MUSICA
