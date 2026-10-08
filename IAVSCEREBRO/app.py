@@ -32,6 +32,8 @@ MODO_ARBITRO = "Modo Árbitro (Espacio, T, F)"
 # Ranking de reacciones humanas más rápidas (se guarda en un archivo JSON junto a este script)
 RANKING_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ranking_reacciones.json")
 MAX_RANKING = 100
+# Registro de todas las personas que han jugado (un nombre distinto = un jugador distinto)
+JUGADORES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jugadores.json")
 ETIQUETA_MODO = {MODO_ALTERNATIVAS: "Alternativas", MODO_ESCRIBIR: "Escribir", MODO_ARBITRO: "Árbitro"}
 ETIQUETA_NIVEL = {"FACIL": "Fácil", "INTERMEDIA": "Intermedia", "DIFICIL": "Difícil"}
 
@@ -146,12 +148,23 @@ def cargar_ranking():
         return []
 
 
+def mejores_por_jugador(ranking):
+    """Deja una sola reacción por jugador (la más rápida), ordenadas de menor a mayor tiempo.
+    Se ignoran mayúsculas y tildes: 'Gabriel' y 'gabriel' son la misma persona."""
+    vistos = set()
+    unicos = []
+    for r in sorted(ranking, key=lambda r: r.get("tiempo", 9999)):
+        clave = normalizar(str(r.get("jugador", "")))
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        unicos.append(r)
+    return unicos
+
+
 def guardar_en_ranking(entrada):
-    """Añade una reacción correcta y conserva solo las MAX_RANKING más rápidas."""
-    ranking = cargar_ranking()
-    ranking.append(entrada)
-    ranking.sort(key=lambda r: r.get("tiempo", 9999))
-    ranking = ranking[:MAX_RANKING]
+    """Añade una reacción correcta; cada jugador conserva solo su mejor tiempo."""
+    ranking = mejores_por_jugador(cargar_ranking() + [entrada])[:MAX_RANKING]
     try:
         tmp = RANKING_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -162,15 +175,15 @@ def guardar_en_ranking(entrada):
 
 
 def mostrar_ranking(limite=10):
-    ranking = cargar_ranking()
+    ranking = mejores_por_jugador(cargar_ranking())
     if not ranking:
         st.info("Aún no hay reacciones registradas. ¡Sé el primero en la lista!")
         return
     medallas = {1: "🥇", 2: "🥈", 3: "🥉"}
-    actual = st.session_state.partida_id
+    actual = normalizar(st.session_state.jugador or "")
     filas = []
     for i, r in enumerate(ranking[:limite], start=1):
-        mia = bool(actual) and r.get("partida") == actual
+        mia = bool(actual) and normalizar(str(r.get("jugador", ""))) == actual
         filas.append({
             "Puesto": medallas.get(i, str(i)),
             "Jugador": ("⭐ " if mia else "") + str(r.get("jugador", "?")),
@@ -181,8 +194,83 @@ def mostrar_ranking(limite=10):
             "Fecha": r.get("fecha", ""),
         })
     st.dataframe(filas, use_container_width=True, hide_index=True)
-    st.caption("Solo cuentan las respuestas correctas, medidas desde que aparece la imagen. "
-               "⭐ = tus reacciones de esta partida.")
+    st.caption("Cada jugador aparece una sola vez, con su reacción correcta más rápida "
+               "(medida desde que aparece la imagen). ⭐ = tú.")
+
+
+# ----------------------------------------------------------------------
+# Registro de todos los jugadores
+# ----------------------------------------------------------------------
+# Cada nombre distinto es un jugador distinto (se ignoran mayúsculas y tildes). Si en el mismo
+# computador alguien cambia el nombre, queda registrado como un jugador nuevo y el anterior se conserva.
+def cargar_jugadores():
+    try:
+        with open(JUGADORES_PATH, encoding="utf-8") as f:
+            datos = json.load(f)
+        return datos if isinstance(datos, dict) else {}
+    except Exception:
+        return {}
+
+
+def _guardar_jugadores(datos):
+    try:
+        tmp = JUGADORES_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(datos, f, ensure_ascii=False)
+        os.replace(tmp, JUGADORES_PATH)
+    except Exception:
+        pass
+
+
+def _ficha(datos, nombre):
+    clave = normalizar(nombre)
+    ficha = datos.setdefault(clave, {
+        "nombre": nombre, "partidas": 0, "respondidas": 0, "correctas": 0,
+        "mejor": None, "ultima": "", "ultima_ts": 0,
+    })
+    ficha["nombre"] = nombre
+    return ficha
+
+
+def registrar_inicio_partida(nombre):
+    datos = cargar_jugadores()
+    ficha = _ficha(datos, nombre)
+    ficha["partidas"] += 1
+    ficha["ultima"] = time.strftime("%d/%m/%Y")
+    ficha["ultima_ts"] = time.time()
+    _guardar_jugadores(datos)
+
+
+def registrar_respuesta_jugador(nombre, correcto, tiempo):
+    datos = cargar_jugadores()
+    ficha = _ficha(datos, nombre)
+    ficha["respondidas"] += 1
+    if correcto:
+        ficha["correctas"] += 1
+        if ficha["mejor"] is None or tiempo < ficha["mejor"]:
+            ficha["mejor"] = tiempo
+    _guardar_jugadores(datos)
+
+
+def mostrar_jugadores():
+    datos = cargar_jugadores()
+    if not datos:
+        st.info("Aún no ha jugado nadie.")
+        return
+    actual = normalizar(st.session_state.jugador or "")
+    filas = []
+    for clave, f in sorted(datos.items(), key=lambda kv: -kv[1].get("ultima_ts", 0)):
+        mejor = f.get("mejor")
+        filas.append({
+            "Jugador": ("⭐ " if actual and clave == actual else "") + str(f.get("nombre", clave)),
+            "Partidas": f.get("partidas", 0),
+            "Aciertos": f"{f.get('correctas', 0)} / {f.get('respondidas', 0)}",
+            "Mejor reacción": f"{mejor} s" if mejor is not None else "—",
+            "Última vez": f.get("ultima", ""),
+        })
+    st.dataframe(filas, use_container_width=True, hide_index=True)
+    st.caption(f"{len(filas)} jugador(es) registrado(s), del más reciente al más antiguo. "
+               "Si cambias el nombre en el mismo computador, se registra como un jugador nuevo.")
 
 
 # ----------------------------------------------------------------------
@@ -631,12 +719,15 @@ if st.session_state.fase == "INICIO":
             else:
                 st.session_state.jugador = nombre_limpio
                 st.session_state.partida_id = int(time.time() * 1000)
+                registrar_inicio_partida(nombre_limpio)
                 st.session_state.fase = "PANTALLA_FACIL"
                 st.rerun()
 
     with tab_ranking:
         st.write("### ⚡ Las reacciones humanas más rápidas")
         mostrar_ranking(limite=10)
+        st.write("### 👥 Todos los jugadores")
+        mostrar_jugadores()
 
 elif st.session_state.fase == "PANTALLA_FACIL":
     st.subheader("🟢 Nivel Inicial")
@@ -777,6 +868,8 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                     "partida": st.session_state.partida_id,
                 })
 
+            registrar_respuesta_jugador(st.session_state.jugador or "Anónimo", es_correcto, segundos)
+
             st.session_state.respondido = True
             st.session_state.resultado_ronda = {
                 "es_correcto": es_correcto,
@@ -907,6 +1000,8 @@ elif st.session_state.fase == "FINAL":
 
     st.write("### ⚡ Reacciones humanas más rápidas")
     mostrar_ranking(limite=10)
+    with st.expander("👥 Todos los jugadores"):
+        mostrar_jugadores()
 
     st.write("### Tabla Comparativa Completa")
     if st.session_state.resultados:
