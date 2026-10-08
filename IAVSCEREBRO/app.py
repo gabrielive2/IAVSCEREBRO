@@ -262,7 +262,7 @@ MUSICA_HTML = """
 
 def iniciar_musica():
     with st.expander("🎵 Música"):
-        if "TU_USUARIO" in MUSICA_URL:st.audio("https://cdn.jsdelivr.net/gh/gabrielive2/IAVSCEREBRO@main/musica/musica.mp3", format="audio/mp3", autoplay=True, loop=True
+        if "TU_USUARIO" in MUSICA_URL:st.audio("https://cdn.jsdelivr.net/gh/gabrielive2/IAVSCEREBRO@main/musica/musica.mp3", format="audio/mp3", autoplay=True, loop=True)
         return
         activa = st.checkbox("Música de fondo", value=True, key="musica_activa")
         volumen = st.slider("Volumen", 0, 100, 30, key="musica_volumen")
