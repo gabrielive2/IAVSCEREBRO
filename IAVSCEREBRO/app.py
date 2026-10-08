@@ -25,7 +25,7 @@ IAS = {
 
 MODO_ALTERNATIVAS = "Modo Alternativas (1, 2, 3, 4)"
 MODO_ESCRIBIR = "Modo Escribir Nombre"
-MODO_VF = "Modo Verdadero / Falso (Espacio, T, F)"
+MODO_ARBITRO = "Modo Árbitro (Espacio, T, F)"
 
 defaults = {
     "fase": "INICIO",
@@ -39,11 +39,9 @@ defaults = {
     "respondido": False,
     "resultado_ronda": {},
     "ultima_idx": -1,
-    # Modo Verdadero / Falso
-    "pausado": False,                 # True cuando se presionó Espacio (tiempo detenido)
-    "tiempo_pausa_s": 0.0,            # segundos transcurridos al presionar Espacio
-    "nombre_propuesto": "",           # nombre que se muestra y hay que juzgar
-    "propuesta_es_correcta": True,    # True si el nombre propuesto es el real
+    # Modo Árbitro
+    "pausado": False,          # True cuando se presionó Espacio (tiempo detenido)
+    "tiempo_pausa_s": 0.0,     # segundos transcurridos al presionar Espacio
 }
 
 for key, val in defaults.items():
@@ -129,8 +127,8 @@ def iniciar_bloque(imagenes, fase_quiz):
 #
 # Atajos (el script mira qué botones hay en pantalla, así que sirve para todos los modos):
 #   1 / 2 / 3 / 4  -> alternativas (modo Alternativas)
-#   Espacio        -> "Parar tiempo" (modo Verdadero / Falso) y congela el cronómetro al instante
-#   T / F          -> Verdadero / Falso (después de parar el tiempo)
+#   Espacio        -> "Parar tiempo" (modo Árbitro) y congela el cronómetro al instante
+#   T / F          -> decisión del árbitro: T = acertó, F = falló (después de parar el tiempo)
 #   Enter          -> Siguiente imagen
 COMPONENTE_HTML = """
 <style>
@@ -232,16 +230,16 @@ if st.session_state.fase == "INICIO":
 
     st.session_state.modo_juego = st.selectbox(
         "Selecciona el modo de juego para la partida:",
-        [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_VF]
+        [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_ARBITRO]
     )
 
     if st.session_state.modo_juego == MODO_ALTERNATIVAS:
         st.info("🎯 **Modo Alternativas:** Presiona las teclas **1, 2, 3 o 4** (o haz clic) para responder. "
                 "Con **Enter** pasas a la siguiente imagen.")
-    elif st.session_state.modo_juego == MODO_VF:
-        st.info("⌨️ **Modo Verdadero / Falso:** Verás una imagen y un nombre. Cuando sepas si el nombre es correcto, "
-                "presiona **Espacio** para detener el tiempo; luego **T** (verdadero) o **F** (falso). "
-                "Con **Enter** pasas a la siguiente imagen.")
+    elif st.session_state.modo_juego == MODO_ARBITRO:
+        st.info("⚖️ **Modo Árbitro:** El jugador dice en voz alta el nombre del animal y presiona **Espacio** "
+                "para detener el tiempo. Entonces el árbitro ve el nombre correcto y decide con **T** "
+                "(acertó) o **F** (falló). Con **Enter** se pasa a la siguiente imagen.")
     else:
         st.info("✍️ **Modo Escribir:** Escribe el nombre del animal en el cuadro de texto y presiona Enter.")
 
@@ -295,7 +293,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             st.session_state.resultado_ronda = {}
             st.session_state.ultima_idx = idx
 
-            if st.session_state.modo_juego in (MODO_ALTERNATIVAS, MODO_VF):
+            if st.session_state.modo_juego == MODO_ALTERNATIVAS:
                 carpeta_map = {"FACIL": CARPETA_FACIL, "INTERMEDIA": CARPETA_INTERMEDIA, "DIFICIL": CARPETA_DIFICIL}
                 carpeta_obj = carpeta_map.get(nivel_actual, CARPETA_FACIL)
 
@@ -309,19 +307,9 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
                 distractores = [n for n in nombres_pool if normalizar(n) != normalizar(nombre_correcto)]
                 random.shuffle(distractores)
-
-                if st.session_state.modo_juego == MODO_ALTERNATIVAS:
-                    opciones = distractores[:3] + [nombre_correcto]
-                    random.shuffle(opciones)
-                    st.session_state.opciones_actuales = opciones
-                else:
-                    # Verdadero / Falso: 50% muestra el nombre real, 50% un nombre equivocado
-                    if distractores and random.random() < 0.5:
-                        st.session_state.nombre_propuesto = random.choice(distractores)
-                        st.session_state.propuesta_es_correcta = False
-                    else:
-                        st.session_state.nombre_propuesto = nombre_correcto
-                        st.session_state.propuesta_es_correcta = True
+                opciones = distractores[:3] + [nombre_correcto]
+                random.shuffle(opciones)
+                st.session_state.opciones_actuales = opciones
 
         st.write(f"### Nivel {nivel_actual} — Imagen {idx + 1} de {len(lista_actual)}")
 
@@ -359,26 +347,17 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
 
         letras = ["1", "2", "3", "4"]
 
-        def procesar_respuesta(respuesta, segundos=None, dijo_verdadero=None):
+        def procesar_respuesta(respuesta, segundos=None, arbitro_acerto=None):
+            """arbitro_acerto: None en los modos normales; True/False cuando decide el árbitro."""
             if segundos is None:
                 segundos = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
             correcta = st.session_state.respuesta_correcta
-            era_verdadero = st.session_state.propuesta_es_correcta
 
-            if dijo_verdadero is None:
-                # Modos Alternativas / Escribir
+            if arbitro_acerto is None:
                 es_correcto = normalizar(respuesta) == normalizar(correcta)
-                resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {correcta})"
             else:
-                # Modo Verdadero / Falso: se compara lo que pulsó con lo que era
-                es_correcto = (dijo_verdadero == era_verdadero)
-                if es_correcto:
-                    resultado_humano = "Acertó"
-                else:
-                    resultado_humano = (
-                        f"Falló (Dijiste {'T' if dijo_verdadero else 'F'}, "
-                        f"era {'T' if era_verdadero else 'F'})"
-                    )
+                es_correcto = arbitro_acerto
+            resultado_humano = "Acertó" if es_correcto else f"Falló (Era: {correcta})"
 
             fila = {
                 "Imagen": nombre_archivo.replace("_borrosa", "").replace("_clara", ""),
@@ -404,9 +383,7 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                 "ias": ias_ronda,
                 "tiempo": f"{segundos} s",
                 "tiempo_s": segundos,
-                "dijo_verdadero": dijo_verdadero,
-                "era_verdadero": era_verdadero,
-                "nombre_propuesto": st.session_state.nombre_propuesto,
+                "arbitro_acerto": arbitro_acerto,
             }
             st.rerun()
 
@@ -420,31 +397,31 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
                         if st.button(f"[{letra_vis}] {op}", use_container_width=True, key=f"btn_op_{idx}_{i}"):
                             procesar_respuesta(op)
 
-            elif st.session_state.modo_juego == MODO_VF:
-                st.markdown(f"### ❓ ¿Este animal es **{st.session_state.nombre_propuesto}**?")
-
+            elif st.session_state.modo_juego == MODO_ARBITRO:
                 if not st.session_state.pausado:
-                    st.write("⌨️ Presiona **Espacio** para detener el tiempo cuando tengas tu respuesta.")
+                    st.write("🗣️ El jugador dice el nombre del animal y presiona **Espacio** para detener el tiempo.")
                     if st.button("⏸️ Parar tiempo (Espacio)", use_container_width=True, key=f"btn_pausa_{idx}"):
                         st.session_state.tiempo_pausa_s = round(time.time() - st.session_state.marca_tiempo_inicio, 1)
                         st.session_state.pausado = True
                         st.rerun()
                 else:
-                    st.write("⏸️ **Tiempo detenido.** Presiona **T** (verdadero) o **F** (falso):")
+                    # El nombre correcto solo se muestra al árbitro una vez detenido el tiempo
+                    st.markdown(f"### ⚖️ Árbitro: el animal es **{st.session_state.respuesta_correcta}**")
+                    st.write("⏸️ **Tiempo detenido.** ¿Acertó el jugador? **T** = sí, **F** = no:")
                     col_v, col_f = st.columns(2)
                     with col_v:
-                        if st.button("[T] Verdadero", use_container_width=True, key=f"btn_t_{idx}"):
+                        if st.button("[T] Verdadero (acertó)", use_container_width=True, key=f"btn_t_{idx}"):
                             procesar_respuesta(
-                                "verdadero",
+                                "",
                                 segundos=st.session_state.tiempo_pausa_s,
-                                dijo_verdadero=True,
+                                arbitro_acerto=True,
                             )
                     with col_f:
-                        if st.button("[F] Falso", use_container_width=True, key=f"btn_f_{idx}"):
+                        if st.button("[F] Falso (falló)", use_container_width=True, key=f"btn_f_{idx}"):
                             procesar_respuesta(
-                                "falso",
+                                "",
                                 segundos=st.session_state.tiempo_pausa_s,
-                                dijo_verdadero=False,
+                                arbitro_acerto=False,
                             )
 
             else:
@@ -460,14 +437,9 @@ elif st.session_state.fase in ["QUIZ_FACIL", "QUIZ_INTERMEDIA", "QUIZ_DIFICIL"]:
             else:
                 st.error(f"❌ {res['humano']}")
 
-            if res.get("dijo_verdadero") is not None:
-                dijo = "T (Verdadero)" if res["dijo_verdadero"] else "F (Falso)"
-                era = "T (Verdadero)" if res["era_verdadero"] else "F (Falso)"
-                st.write(
-                    f"🔎 Pulsaste **{dijo}**. La respuesta correcta era **{era}**: "
-                    f"el nombre mostrado era «{res['nombre_propuesto']}» y el animal es "
-                    f"**{st.session_state.respuesta_correcta}**."
-                )
+            if res.get("arbitro_acerto") is not None:
+                decision = "T (acertó)" if res["arbitro_acerto"] else "F (falló)"
+                st.write(f"⚖️ Decisión del árbitro: **{decision}**. El animal era **{st.session_state.respuesta_correcta}**.")
 
             st.info(f"⏱️ **Tu tiempo final:** {res['tiempo']}")
             st.write("🤖 **Así les fue a las IAs:**")
