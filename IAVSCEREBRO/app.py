@@ -5,6 +5,7 @@ import time
 import random
 import base64
 import unicodedata
+import json
 
 st.set_page_config(page_title="IAVSCEREBRO - Quiz", layout="centered")
 
@@ -13,6 +14,9 @@ CARPETA_FACIL = "faciles"
 CARPETA_INTERMEDIA = "intermedias"
 CARPETA_DIFICIL = "dificiles"
 IMAGENES_POR_BLOQUE = 5
+# Enlace al mp3 subido a tu repositorio de GitHub (repo público), a través de jsDelivr.
+# Formato: https://cdn.jsdelivr.net/gh/USUARIO/REPOSITORIO@main/musica.mp3
+MUSICA_URL = "https://cdn.jsdelivr.net/gh/TU_USUARIO/TU_REPOSITORIO@main/musica.mp3"
 
 # IAs simuladas: probabilidad de acierto por nivel y rango de tiempo de respuesta (segundos).
 # Son valores inventados y editables: no se consulta ninguna IA real.
@@ -179,6 +183,10 @@ COMPONENTE_HTML = """
       }
     } else if (k.length === 1 && '1234tf'.includes(k)) {
       destino = botones.find(b => b.innerText.trim().toLowerCase().startsWith('[' + k + ']'));
+    } else if (k === 'm') {
+      // M = silenciar / activar el sonido de la música (sin recargar nada)
+      if (P.__iavAudio) P.__iavAudio.muted = !P.__iavAudio.muted;
+      return;
     } else if (e.key === 'Enter') {
       destino = botones.find(b => b.innerText.includes('Siguiente'));
     }
@@ -201,6 +209,76 @@ def mostrar_cronometro(transcurrido, detenido):
         .replace("%%TRANSCURRIDO%%", f"{max(0.0, transcurrido):.3f}")
     )
     components.html(html, height=50)
+
+
+# ----------------------------------------------------------------------
+# Música de fondo
+# ----------------------------------------------------------------------
+# Claves para que la página no se cuelgue:
+#  1) El mp3 NO se mete en el código de la página (nada de base64 ni st.audio):
+#     se carga desde un enlace externo (GitHub vía jsDelivr) y el navegador lo descarga UNA vez.
+#  2) El <audio> se crea una sola vez en la página principal, así que Streamlit puede
+#     re-ejecutar el script cientos de veces sin cortar ni reiniciar la música.
+#  3) Solo se toca el audio cuando cambia el volumen o el interruptor.
+MUSICA_HTML = """
+<script>
+(function () {
+  const P = window.parent;
+  const activa = %%ACTIVA%%;
+  const volumen = %%VOLUMEN%%;
+  const src = %%URL%%;
+
+  if (!P.__iavAudio) {
+    const a = P.document.createElement('audio');
+    a.src = src;
+    a.loop = true;
+    a.preload = 'auto';
+    P.document.body.appendChild(a);
+    P.__iavAudio = a;
+  }
+  const audio = P.__iavAudio;
+
+  // Los navegadores bloquean el autoplay hasta que hay un clic o una tecla: se arranca ahí.
+  ['click', 'keydown', 'touchstart'].forEach(ev => {
+    if (P.__iavArrancar) P.document.removeEventListener(ev, P.__iavArrancar);
+  });
+  P.__iavArrancar = function () {
+    if (P.__iavActiva && P.__iavAudio.paused) P.__iavAudio.play().catch(() => {});
+  };
+  ['click', 'keydown', 'touchstart'].forEach(ev => P.document.addEventListener(ev, P.__iavArrancar));
+
+  // Solo se toca el audio si cambió la configuración
+  const cfg = activa + '|' + volumen;
+  if (P.__iavCfg !== cfg) {
+    P.__iavCfg = cfg;
+    P.__iavActiva = activa;
+    audio.volume = volumen;
+    if (activa) { audio.play().catch(() => {}); } else { audio.pause(); }
+  }
+})();
+</script>
+"""
+
+
+def iniciar_musica():
+    with st.expander("🎵 Música"):
+        if "TU_USUARIO" in MUSICA_URL:
+            st.warning("Falta configurar MUSICA_URL al inicio del código con el enlace a tu mp3 en GitHub.")
+            return
+        activa = st.checkbox("Música de fondo", value=True, key="musica_activa")
+        volumen = st.slider("Volumen", 0, 100, 30, key="musica_volumen")
+        st.caption("Durante el quiz, la tecla M silencia o activa el sonido.")
+
+    html = (
+        MUSICA_HTML
+        .replace("%%ACTIVA%%", "true" if activa else "false")
+        .replace("%%VOLUMEN%%", f"{volumen / 100:.2f}")
+        .replace("%%URL%%", json.dumps(MUSICA_URL))
+    )
+    components.html(html, height=0)
+
+
+iniciar_musica()
 
 
 # ----------------------------------------------------------------------
