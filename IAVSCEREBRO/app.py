@@ -5,7 +5,7 @@ import time
 import random
 import base64
 import unicodedata
-import json
+import copy
 
 st.set_page_config(page_title="IAVSCEREBRO - Quiz", layout="centered")
 
@@ -14,9 +14,6 @@ CARPETA_FACIL = "faciles"
 CARPETA_INTERMEDIA = "intermedias"
 CARPETA_DIFICIL = "dificiles"
 IMAGENES_POR_BLOQUE = 5
-# Enlace al mp3 subido a tu repositorio de GitHub (repo público), a través de jsDelivr.
-# Formato: https://cdn.jsdelivr.net/gh/USUARIO/REPOSITORIO@main/musica.mp3
-MUSICA_URL = "https://cdn.jsdelivr.net/gh/TU_USUARIO/TU_REPOSITORIO@main/musica.mp3"
 
 # IAs simuladas: probabilidad de acierto por nivel y rango de tiempo de respuesta (segundos).
 # Son valores inventados y editables: no se consulta ninguna IA real.
@@ -50,7 +47,7 @@ defaults = {
 
 for key, val in defaults.items():
     if key not in st.session_state:
-        st.session_state[key] = val
+        st.session_state[key] = copy.deepcopy(val)
 
 
 # ----------------------------------------------------------------------
@@ -110,6 +107,14 @@ def buscar_clara(ruta_borrosa):
             if nombre.lower() == objetivo and ext.lower() in (".png", ".jpeg", ".png"):
                 return os.path.join(carpeta, f)
     return None
+
+
+def nueva_partida():
+    """Borra los resultados y vuelve a la pantalla de inicio (conserva el modo elegido)."""
+    for k, v in defaults.items():
+        if k != "modo_juego":
+            st.session_state[k] = copy.deepcopy(v)
+    st.rerun()
 
 
 def iniciar_bloque(imagenes, fase_quiz):
@@ -185,7 +190,11 @@ COMPONENTE_HTML = """
       destino = botones.find(b => b.innerText.trim().toLowerCase().startsWith('[' + k + ']'));
     } else if (k === 'm') {
       // M = silenciar / activar el sonido de la música (sin recargar nada)
-      if (P.__iavAudio) P.__iavAudio.muted = !P.__iavAudio.muted;
+      const Mu = P.__iavMus;
+      if (Mu && Mu.master) {
+        Mu.mute = !Mu.mute;
+        Mu.master.gain.setTargetAtTime(Mu.mute ? 0 : Mu.vol, Mu.ctx.currentTime, 0.05);
+      }
       return;
     } else if (e.key === 'Enter') {
       destino = botones.find(b => b.innerText.includes('Siguiente'));
@@ -212,67 +221,124 @@ def mostrar_cronometro(transcurrido, detenido):
 
 
 # ----------------------------------------------------------------------
-# Música de fondo
+# Música de fondo (generada por código: no necesita ningún archivo mp3)
 # ----------------------------------------------------------------------
-# Claves para que la página no se cuelgue:
-#  1) El mp3 NO se mete en el código de la página (nada de base64 ni st.audio):
-#     se carga desde un enlace externo (GitHub vía jsDelivr) y el navegador lo descarga UNA vez.
-#  2) El <audio> se crea una sola vez en la página principal, así que Streamlit puede
-#     re-ejecutar el script cientos de veces sin cortar ni reiniciar la música.
-#  3) Solo se toca el audio cuando cambia el volumen o el interruptor.
+# - La música se sintetiza en el navegador con la Web Audio API: no hay archivos que
+#   subir ni datos pesados que viajen en cada recarga, así que no puede colapsar la página.
+# - Empieza al comenzar las preguntas y se detiene en la pantalla final.
+# - El motor vive en la página principal (no dentro del iframe), por eso no se corta
+#   ni se reinicia cuando Streamlit vuelve a ejecutar el script.
 MUSICA_HTML = """
 <script>
 (function () {
   const P = window.parent;
-  const activa = %%ACTIVA%%;
+  const sonar = %%SONAR%%;
   const volumen = %%VOLUMEN%%;
-  const src = %%URL%%;
 
-  if (!P.__iavAudio) {
-    const a = P.document.createElement('audio');
-    a.src = src;
-    a.loop = true;
-    a.preload = 'auto';
-    P.document.body.appendChild(a);
-    P.__iavAudio = a;
+  if (!P.__iavMus) {
+    P.__iavMus = { ctx: null, master: null, timer: null, paso: 0, proxima: 0,
+                   quiere: false, vol: 0.3, mute: false };
   }
-  const audio = P.__iavAudio;
+  const M = P.__iavMus;
+  M.quiere = sonar;
+  M.vol = volumen;
 
-  // Los navegadores bloquean el autoplay hasta que hay un clic o una tecla: se arranca ahí.
+  // ---- Melodía: 4 acordes (Do, La menor, Fa, Sol) con un arpegio suave ----
+  const CORCHEA = 0.36;                       // segundos por corchea (unos 83 bpm)
+  const PROG = [
+    { bajo: 48, arp: [60, 64, 67, 72] },      // Do
+    { bajo: 45, arp: [57, 60, 64, 69] },      // La menor
+    { bajo: 41, arp: [60, 65, 69, 72] },      // Fa
+    { bajo: 43, arp: [59, 62, 67, 71] }       // Sol
+  ];
+  const PATRON = [0, 1, 2, 3, 2, 1, 2, 1];
+  const hz = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+
+  function nota(midi, t, dur, tipo, vol) {
+    const o = M.ctx.createOscillator();
+    const g = M.ctx.createGain();
+    o.type = tipo;
+    o.frequency.value = hz(midi);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g);
+    g.connect(M.master);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+
+  function programar(paso, t) {
+    const acorde = PROG[Math.floor(paso / 8) % PROG.length];
+    const pos = paso % 8;
+    if (pos === 0) nota(acorde.bajo, t, CORCHEA * 7.5, 'sine', 0.5);
+    nota(acorde.arp[PATRON[pos]], t, CORCHEA * 2, 'triangle', 0.22);
+  }
+
+  function aplicarVolumen() {
+    if (!M.master) return;
+    const objetivo = (M.mute || !M.quiere) ? 0 : M.vol;
+    M.master.gain.setTargetAtTime(objetivo, M.ctx.currentTime, 0.1);
+  }
+
+  function asegurarAudio() {
+    if (!M.ctx) {
+      const AC = P.AudioContext || P.webkitAudioContext;
+      if (!AC) return;
+      M.ctx = new AC();               // se crea en la ventana principal para que sobreviva al iframe
+      M.master = M.ctx.createGain();
+      M.master.gain.value = 0;
+      M.master.connect(M.ctx.destination);
+    }
+    if (M.ctx.state === 'suspended') M.ctx.resume().catch(() => {});
+    aplicarVolumen();
+  }
+
+  function tick() {
+    try {
+      if (!M.quiere || !M.ctx || M.ctx.state !== 'running') return;
+      const ahora = M.ctx.currentTime;
+      if (M.proxima < ahora) M.proxima = ahora + 0.1;
+      while (M.proxima < ahora + 0.4) {
+        programar(M.paso, M.proxima);
+        M.proxima += CORCHEA;
+        M.paso++;
+      }
+    } catch (e) {}
+  }
+
+  // Los navegadores no dejan sonar nada hasta que hay un clic o una tecla.
+  // Se desbloquea con la primera interacción (por ejemplo, al pulsar "Comenzar Evaluación").
   ['click', 'keydown', 'touchstart'].forEach(ev => {
-    if (P.__iavArrancar) P.document.removeEventListener(ev, P.__iavArrancar);
+    if (P.__iavDesbloquear) P.document.removeEventListener(ev, P.__iavDesbloquear);
   });
-  P.__iavArrancar = function () {
-    if (P.__iavActiva && P.__iavAudio.paused) P.__iavAudio.play().catch(() => {});
-  };
-  ['click', 'keydown', 'touchstart'].forEach(ev => P.document.addEventListener(ev, P.__iavArrancar));
+  P.__iavDesbloquear = function () { asegurarAudio(); };
+  ['click', 'keydown', 'touchstart'].forEach(ev => P.document.addEventListener(ev, P.__iavDesbloquear));
 
-  // Solo se toca el audio si cambió la configuración
-  const cfg = activa + '|' + volumen;
-  if (P.__iavCfg !== cfg) {
-    P.__iavCfg = cfg;
-    P.__iavActiva = activa;
-    audio.volume = volumen;
-    if (activa) { audio.play().catch(() => {}); } else { audio.pause(); }
-  }
+  if (M.ctx) asegurarAudio();
+  if (M.timer) P.clearInterval(M.timer);
+  M.timer = P.setInterval(tick, 100);
 })();
 </script>
 """
 
+# La música suena desde la primera pregunta hasta antes de la pantalla final
+FASES_CON_MUSICA = (
+    "QUIZ_FACIL", "PANTALLA_INTERMEDIA", "QUIZ_INTERMEDIA", "PANTALLA_DIFICIL", "QUIZ_DIFICIL",
+)
+
 
 def iniciar_musica():
     with st.expander("🎵 Música"):
-        if "TU_USUARIO" in MUSICA_URL:st.audio("https://cdn.jsdelivr.net/gh/gabrielive2/IAVSCEREBRO@main/musica/musica.mp3", format="audio/mp3", autoplay=True, loop=True)
-        return
-        activa = st.checkbox("Música de fondo", value=True, key="musica_activa")
+        activa = st.checkbox("Música de fondo (suena durante las preguntas)", value=True, key="musica_activa")
         volumen = st.slider("Volumen", 0, 100, 30, key="musica_volumen")
         st.caption("Durante el quiz, la tecla M silencia o activa el sonido.")
 
+    sonar = activa and st.session_state.fase in FASES_CON_MUSICA
     html = (
         MUSICA_HTML
-        .replace("%%ACTIVA%%", "true" if activa else "false")
+        .replace("%%SONAR%%", "true" if sonar else "false")
         .replace("%%VOLUMEN%%", f"{volumen / 100:.2f}")
-        .replace("%%URL%%", json.dumps(MUSICA_URL))
     )
     components.html(html, height=0)
 
@@ -305,9 +371,11 @@ if st.session_state.fase == "INICIO":
     st.title("🧠 BIENVENIDO A IAVSCEREBRO")
     st.write("Duelo de velocidad y precisión entre el cerebro humano y la inteligencia artificial.")
 
+    modos = [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_ARBITRO]
     st.session_state.modo_juego = st.selectbox(
         "Selecciona el modo de juego para la partida:",
-        [MODO_ALTERNATIVAS, MODO_ESCRIBIR, MODO_ARBITRO]
+        modos,
+        index=modos.index(st.session_state.modo_juego),
     )
 
     if st.session_state.modo_juego == MODO_ALTERNATIVAS:
@@ -573,3 +641,7 @@ elif st.session_state.fase == "FINAL":
         st.dataframe(st.session_state.resultados, use_container_width=True)
     else:
         st.info("No hay datos registrados en esta partida.")
+
+    st.write("---")
+    if st.button("🔄 Empezar nueva partida", type="primary", use_container_width=True):
+        nueva_partida()
