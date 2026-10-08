@@ -262,7 +262,7 @@ MUSICA_HTML = """
 
 def iniciar_musica():
     with st.expander("🎵 Música"):
-        if "TU_USUARIO" in MUSICA_URL:https://cdn.jsdelivr.net/gh/TU_USUARIO/TU_REPOSITORIO@main/musica.mp3
+        if "TU_USUARIO" in MUSICA_URL:https: /cdn.jsdelivr.net/gh/TU_USUARIO/TU_REPOSITORIO@main/musica.mp3
             st.warning("Falta configurar MUSICA_URL al inicio del código con el enlace a tu mp3 en GitHub.")
             return
         activa = st.checkbox("Música de fondo", value=True, key="musica_activa")
